@@ -1,0 +1,19 @@
+syntax: glob
+
+cell-test
+
+debug/*
+release/*
+dependencies/*
+*~
+.\#*
+*\#
+*.orig
+*.o
+*.so
+Debug/*
+Release/*
+*.suo
+*.filters
+*.db
+*.opendb
