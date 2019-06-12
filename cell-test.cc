@@ -1,6 +1,7 @@
 #include <array>
 #include <cassert>
 #include <iostream>
+#include <sstream>
 
 #include <surface-generalized-bezier.hh>
 
@@ -181,9 +182,20 @@ Cell::GB3sided(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &)) {
 }
 
 int main() {
-  Cell cell({ 0, -1, 0.5 }, 1);
-  auto surface = cell.GB3sided(sphere, sphereGradient);
-  saveBezier(surface, "/tmp/cell.gbp");
-  writeBezierControlPoints(surface, "/tmp/cell-cp.obj");
-  surface.eval(100).writeOBJ("/tmp/cell.obj");
+  // Cell cell({ 0, -1, 0.5 }, 1);
+  // auto surface = cell.GB3sided(sphere, sphereGradient);
+  // saveBezier(surface, "/tmp/cell.gbp");
+  // writeBezierControlPoints(surface, "/tmp/cell-cp.obj");
+  // surface.eval(100).writeOBJ("/tmp/cell.obj");
+  for (int i = 0; i <= 1; ++i)
+    for (int j = 0; j <= 1; ++j)
+      for (int k = 0; k <= 1; ++k) {
+        double l = 1.2;
+        auto p = Point3D(0.1, 0.1, 0.1) + (Point3D(i, j, k) - Point3D(1, 1, 1)) * l;
+        Cell cell(p, l);
+        auto surface = cell.GB3sided(sphere, sphereGradient);
+        std::stringstream s;
+        s << "/tmp/cell-" << i << j << k << ".obj";
+        surface.eval(100).writeOBJ(s.str());
+      }
 }
