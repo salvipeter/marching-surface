@@ -15,8 +15,8 @@ using Surface = Transfinite::SurfaceGeneralizedBezier;
 class Cell {
 public:
   Cell(const Point3D &origin, double length);
-  void init(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &),
-            size_t min_levels, size_t max_levels, bool initialized = false);
+  template<typename F, typename DF>
+  void init(std::pair<F,DF> fdf, size_t min_levels, size_t max_levels, bool initialized = false);
   double value(int i) const { return values[i]; }
   const Vector3D &gradient(int i) const { return gradients[i]; }
   Point3D vertex(int i) const;
@@ -163,14 +163,14 @@ Cell::samePlane(const Edge &e1, const Edge &e2) {
     });
 }
 
+template<typename F, typename DF>
 void
-Cell::init(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &),
-           size_t min_levels, size_t max_levels, bool initialized) {
+Cell::init(std::pair<F,DF> fdf, size_t min_levels, size_t max_levels, bool initialized) {
   unsigned char id = 0, bit = 1;
   for (int i = 0; i < 8; ++i, bit <<= 1) {
     if (!initialized) {
-      values[i] = f(vertex(i));
-      gradients[i] = df(vertex(i));
+      values[i] = fdf.first(vertex(i));
+      gradients[i] = fdf.second(vertex(i));
     }
     if (values[i] < 0)
       id += bit;
@@ -185,7 +185,7 @@ Cell::init(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &),
     std::array<Vector3D,19> new_gradients;
     auto add = [&](int index, int i, int j, int k) {
                  auto p = origin + Vector3D(i, j, k) * new_length;
-                 new_values[index] = f(p); new_gradients[index] = df(p);
+                 new_values[index] = fdf.first(p); new_gradients[index] = fdf.second(p);
                };
     // Edge midpoints
     add( 0, 1, 0, 0);
@@ -226,7 +226,7 @@ Cell::init(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &),
               cell->gradients[v] = new_gradients[refinement[r]];
             }
           }
-          cell->init(f, df, min_levels ? min_levels - 1 : 0, max_levels - 1, true);
+          cell->init(fdf, min_levels ? min_levels - 1 : 0, max_levels - 1, true);
           children[index++] = std::move(cell);
         }
   }
@@ -273,7 +273,8 @@ Cell::surface() const {
   } while (cross != 0);
   int sides = corners.size();
 
-  assert(n_crosses == sides && "Ambiguous case!");
+  if (sides != n_crosses)       // ambiguous case
+    return { };                 // kutykurutty
 
   auto surf = std::make_unique<Surface>();
   surf->initNetwork(sides, 3);
@@ -352,24 +353,31 @@ Cell::surface() const {
   return result;
 }
 
-double sphere(const Point3D &p) {
-  return p.norm() - 1;
+auto sphere(const Point3D &origin, double radius) {
+  return std::make_pair([=](const Point3D &p) { return (p - origin).norm() - radius; },
+                        [=](const Point3D &p) { return (p - origin) / (p - origin).norm(); });
 }
 
-Vector3D sphereGradient(const Point3D &p) {
-  return p / p.norm();
+template<typename F1, typename DF1, typename F2, typename DF2>
+auto multiply(std::pair<F1,DF1> fdf1, std::pair<F2,DF2> fdf2) {
+  return std::make_pair([=](const Point3D &p) { return fdf1.first(p) * fdf2.first(p); },
+                        [=](const Point3D &p) {
+                          return fdf1.second(p) * fdf2.first(p) + fdf2.second(p) * fdf1.first(p);
+                        });
 }
 
 int main() {
   size_t resolution = 30;
   Cell cell({ -1.6, -1.6, -1.6 }, 3);
-  cell.init(sphere, sphereGradient, 2, 2);
+  cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
+  // Cell cell({ 0, 0, 0 }, 1);
+  // cell.init(multiply(sphere({-0.1, 0, 0}, 0.5), sphere({1.2, 0.9, 0.1}, 0.6)), 0, 0);
   auto surfaces = cell.surface();
   std::cout << "Generated " << surfaces.size() << " surfaces." << std::endl;
   for (size_t i = 0; i < surfaces.size(); ++i) {
     std::stringstream s;
     s << "/tmp/cell-" << i;
-    saveBezier(*surfaces[i].get(), s.str() + ".gbp");
+    // saveBezier(*surfaces[i].get(), s.str() + ".gbp");
     // writeBezierControlPoints(*surfaces[i].get(), s.str() + "-cp.obj");
     surfaces[i]->eval(resolution).writeOBJ(s.str() + ".obj");
   }
