@@ -36,6 +36,7 @@ private:
   static const std::array<Edge,12> edges;
   static const std::array<Face,6> faces;
   static const std::array<Vector3D,6> planes;
+  static const std::array<int,64> refinement;
   static const std::array<unsigned char,123> good_configs;
   /*
        7         6
@@ -75,6 +76,17 @@ const std::array<Vector3D,6> Cell::planes = {
     {0, 0, -1}, {0, 0, 1}, { 0, -1, 0},
     {0, 1,  0}, {1, 0, 0}, {-1,  0, 0}
   }
+};
+
+const std::array<int,64> Cell::refinement = {
+  -1, 0, 12, 3, 10, 16, 18, 15,
+  10, 16, 18, 15, -1, 4, 13, 7,
+  3, 12, 2, -1, 15, 18, 17, 11,
+  15, 18, 17, 11, 7, 13, 6, -1,
+  0, -1, 1, 12, 16, 8, 14, 18,
+  16, 8, 14, 18, 4, -1, 5, 13,
+  12, 1, -1, 2, 18, 14, 9, 17,
+  18, 14, 9, 17, 13, 5, -1, 6
 };
 
 const std::array<unsigned char,123> Cell::good_configs = { // 122/256 configurations
@@ -156,8 +168,10 @@ Cell::init(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &),
            size_t min_levels, size_t max_levels, bool initialized) {
   unsigned char id = 0, bit = 1;
   for (int i = 0; i < 8; ++i, bit <<= 1) {
-    values[i] = f(vertex(i));
-    gradients[i] = df(vertex(i));
+    if (!initialized) {
+      values[i] = f(vertex(i));
+      gradients[i] = df(vertex(i));
+    }
     if (values[i] < 0)
       id += bit;
   }
@@ -165,13 +179,53 @@ Cell::init(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &),
       (max_levels > 0 &&
        std::find(good_configs.begin(), good_configs.end(), id) == good_configs.end())) {
     double new_length = length / 2;
+
+    // Compute new points to be reused by the children
+    std::array<double,19> new_values;
+    std::array<Vector3D,19> new_gradients;
+    auto add = [&](int index, int i, int j, int k) {
+                 auto p = origin + Vector3D(i, j, k) * new_length;
+                 new_values[index] = f(p); new_gradients[index] = df(p);
+               };
+    // Edge midpoints
+    add( 0, 1, 0, 0);
+    add( 1, 2, 1, 0); //
+    add( 2, 1, 2, 0); //    +---6----+
+    add( 3, 0, 1, 0); //   11       9|
+    add( 4, 1, 0, 2); //  / 7      / 5
+    add( 5, 2, 1, 2); // +---2----+  |
+    add( 6, 1, 2, 2); // |  +---4-|--+
+    add( 7, 0, 1, 2); // 3 10     1 8
+    add( 8, 2, 0, 1); // |/       |/
+    add( 9, 2, 2, 1); // +---0----+
+    add(10, 0, 0, 1); //
+    add(11, 0, 2, 1);
+    // Face midpoints
+    add(12, 1, 1, 0); // front
+    add(13, 1, 1, 2); // back
+    add(14, 2, 1, 1); // right
+    add(15, 0, 1, 1); // left
+    add(16, 1, 0, 1); // bottom
+    add(17, 1, 2, 1); // top
+    // Center point
+    add(18, 1, 1, 1);
+
     int index = 0;
     for (int i = 0; i <= 1; ++i)
       for (int j = 0; j <= 1; ++j)
         for (int k = 0; k <= 1; ++k) {
           auto new_origin = origin + Vector3D(i, j, k) * new_length;
           auto cell = std::make_unique<Cell>(new_origin, new_length);
-          // TODO: fill child's values/gradients
+          for (int v = 0; v < 8; ++v) {
+            int r = index * 8 + v;
+            if (refinement[r] < 0) { // same as parent's
+              cell->values[v] = values[v];
+              cell->gradients[v] = gradients[v];
+            } else {
+              cell->values[v] = new_values[refinement[r]];
+              cell->gradients[v] = new_gradients[refinement[r]];
+            }
+          }
           cell->init(f, df, min_levels ? min_levels - 1 : 0, max_levels - 1, true);
           children[index++] = std::move(cell);
         }
