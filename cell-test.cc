@@ -21,9 +21,12 @@ Vector3D sphereGradient(const Point3D &p) {
 class Cell {
 public:
   Cell(const Point3D &origin, double length) : origin(origin), length(length) { }
-  Surface GB3sided(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &));
+  void init(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &));
+  double value(int i) const { return values[i]; }
+  const Vector3D &gradient(int i) const { return gradients[i]; }
   Point3D vertex(int i) const;
-  Vector3D planeNormal(int i, int j, int k) const;
+  const Vector3D &planeNormal(int i, int j, int k) const;
+  Surface GB3sided() const;
 private:
   Point3D origin;
   double length;
@@ -83,7 +86,7 @@ Cell::vertex(int i) const {
   assert(false && "Invalid vertex");
 }
 
-Vector3D
+const Vector3D &
 Cell::planeNormal(int i, int j, int k) const {
   for (int plane = 0; plane < 6; ++plane) {
     int found = 0;
@@ -98,16 +101,19 @@ Cell::planeNormal(int i, int j, int k) const {
   assert(false && "No plane of the cell contains these vertices");
 }
 
-Surface
-Cell::GB3sided(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &)) {
+void
+Cell::init(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &)) {
   for (int i = 0; i < 8; ++i) {
     values[i] = f(vertex(i));
     gradients[i] = df(vertex(i));
   }
+}
 
+Surface
+Cell::GB3sided() const {
   std::vector<int> crosses;
   for (int i = 0; i < 12; ++i)
-    if (values[edges[i].first] * values[edges[i].second] < 0)
+    if (value(edges[i].first) * value(edges[i].second) < 0)
       crosses.push_back(i);
   assert(crosses.size() == 3);
 
@@ -133,10 +139,10 @@ Cell::GB3sided(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &)) {
   std::array<Vector3D, 3> normals;
   for (int i = 1; i <= 3; ++i) {
     int i1 = vertices[0], i2 = vertices[i];
-    double v1 = values[i1], v2 = values[i2];
+    double v1 = value(i1), v2 = value(i2);
     double length = std::abs(v2 - v1), alpha = std::abs(v1) / length;
     corners[i-1] = vertex(i1) * (1 - alpha) + vertex(i2) * alpha;
-    normals[i-1] = gradients[i1] * (1 - alpha) + gradients[i2] * alpha;
+    normals[i-1] = gradient(i1) * (1 - alpha) + gradient(i2) * alpha;
   }
 
   Surface surf;
@@ -183,7 +189,8 @@ Cell::GB3sided(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &)) {
 
 int main() {
   // Cell cell({ 0, -1, 0.5 }, 1);
-  // auto surface = cell.GB3sided(sphere, sphereGradient);
+  // cell.init(sphere, sphereGradient);
+  // auto surface = cell.GB3sided();
   // saveBezier(surface, "/tmp/cell.gbp");
   // writeBezierControlPoints(surface, "/tmp/cell-cp.obj");
   // surface.eval(100).writeOBJ("/tmp/cell.obj");
@@ -193,7 +200,8 @@ int main() {
         double l = 1.2;
         auto p = Point3D(0.1, 0.1, 0.1) + (Point3D(i, j, k) - Point3D(1, 1, 1)) * l;
         Cell cell(p, l);
-        auto surface = cell.GB3sided(sphere, sphereGradient);
+        cell.init(sphere, sphereGradient);
+        auto surface = cell.GB3sided();
         std::stringstream s;
         s << "/tmp/cell-" << i << j << k << ".obj";
         surface.eval(100).writeOBJ(s.str());
