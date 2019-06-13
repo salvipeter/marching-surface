@@ -173,18 +173,19 @@ Cell::init(double (*f)(const Point3D &), Vector3D (*df)(const Point3D &),
           auto cell = std::make_unique<Cell>(new_origin, new_length);
           // TODO: fill child's values/gradients
           cell->init(f, df, min_levels ? min_levels - 1 : 0, max_levels - 1, true);
-          children[index++] = cell;
+          children[index++] = std::move(cell);
         }
   }
 }
 
 std::vector<std::unique_ptr<Surface>>
 Cell::surface() const {
+  std::vector<std::unique_ptr<Surface>> result;
+
   if (children[0]) {
-    std::vector<std::unique_ptr<Surface>> result;
     for (int i = 0; i < 8; ++i) {
       auto surfaces = children[i]->surface();
-      result.insert(result.end(), surfaces.begin(), surfaces.end());
+      std::move(surfaces.begin(), surfaces.end(), std::back_inserter(result));
     }
     return result;
   }
@@ -292,7 +293,9 @@ Cell::surface() const {
   surf->setCentralControlPoint(p / sides);
 
   surf->setupLoop();
-  return { surf };
+
+  result.emplace_back(surf.release());
+  return result;
 }
 
 double sphere(const Point3D &p) {
