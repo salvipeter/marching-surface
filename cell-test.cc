@@ -361,14 +361,16 @@ Vector3D sphereGradient(const Point3D &p) {
 }
 
 int main() {
-  Cell cell({ -0.3, -0.7, -1.5 }, 1);
+  size_t resolution = 30;
+  Cell cell({ -1.6, -1.6, -1.6 }, 3);
   cell.init(sphere, sphereGradient, 2, 2);
   auto surfaces = cell.surface();
+  std::cout << "Generated " << surfaces.size() << " surfaces." << std::endl;
   for (size_t i = 0; i < surfaces.size(); ++i) {
     std::stringstream s;
     s << "/tmp/cell-" << i;
     saveBezier(*surfaces[i].get(), s.str() + ".gbp");
-    writeBezierControlPoints(*surfaces[i].get(), s.str() + "-cp.obj");
-    surfaces[i]->eval(100).writeOBJ(s.str() + ".obj");
+    // writeBezierControlPoints(*surfaces[i].get(), s.str() + "-cp.obj");
+    surfaces[i]->eval(resolution).writeOBJ(s.str() + ".obj");
   }
 }
