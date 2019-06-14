@@ -12,6 +12,11 @@
 using namespace Geometry;
 using Surface = Transfinite::SurfaceGeneralizedBezier;
 
+template<typename Container, typename T>
+bool contains(const Container &c, const T &value) {
+  return std::find(c.begin(), c.end(), value) != c.end();
+}
+
 class Cell {
 public:
   Cell(const Point3D &origin, double length);
@@ -37,7 +42,7 @@ private:
   static const std::array<Face,6> faces;
   static const std::array<Vector3D,6> planes;
   static const std::array<int,64> refinement;
-  static const std::array<unsigned char,123> good_configs;
+  static const std::array<unsigned char,122> good_configs;
   /*
        7         6
       +--------+
@@ -60,21 +65,21 @@ const std::array<Cell::Edge,12> Cell::edges = {
   {
     {0, 1}, {1, 2}, {2, 3}, {3, 0},
     {4, 5}, {5, 6}, {6, 7}, {7, 4},
-    {1, 5}, {4, 0}, {2, 6}, {7, 3}
+    {1, 5}, {6, 2}, {0, 4}, {7, 3}
   }
 };
 
 const std::array<Cell::Face,6> Cell::faces = {
   {
-    {0, 1, 2, 3}, {4, 5, 6, 7}, {0, 1, 5, 4},
-    {3, 2, 6, 7}, {1, 5, 6, 2}, {0, 4, 7, 3}
+    {0, 1, 2, 3}, {4, 5, 6, 7}, {1, 5, 6, 2},
+    {0, 4, 7, 3}, {0, 1, 5, 4}, {3, 2, 6, 7}
   }
 };
 
 const std::array<Vector3D,6> Cell::planes = {
   {
-    {0, 0, -1}, {0, 0, 1}, { 0, -1, 0},
-    {0, 1,  0}, {1, 0, 0}, {-1,  0, 0}
+    { 0, 0, -1}, {0,  0, 1}, {1, 0, 0},
+    {-1, 0,  0}, {0, -1, 0}, {0, 1, 0}
   }
 };
 
@@ -89,7 +94,7 @@ const std::array<int,64> Cell::refinement = {
   18, 14, 9, 17, 13, 5, -1, 6
 };
 
-const std::array<unsigned char,123> Cell::good_configs = { // 122/256 configurations
+const std::array<unsigned char,122> Cell::good_configs = { // 122/256 configurations
   // 0 vertex (2) - no surface
   0b00000000,
   0b11111111,
@@ -158,7 +163,7 @@ Cell::samePlane(const Edge &e1, const Edge &e2) {
   vertices.insert(e2.second);
   return std::any_of(faces.begin(), faces.end(), [&vertices](const Face &face) {
       return std::all_of(vertices.begin(), vertices.end(), [&face](int vertex) {
-          return std::find(face.begin(), face.end(), vertex) != face.end();
+          return contains(face, vertex);
         });
     });
 }
@@ -175,9 +180,7 @@ Cell::init(std::pair<F,DF> fdf, size_t min_levels, size_t max_levels, bool initi
     if (values[i] < 0)
       id += bit;
   }
-  if (min_levels > 0 ||
-      (max_levels > 0 &&
-       std::find(good_configs.begin(), good_configs.end(), id) == good_configs.end())) {
+  if (min_levels > 0 || (max_levels > 0 && !contains(good_configs, id))) {
     double new_length = length / 2;
 
     // Compute new points to be reused by the children
@@ -261,7 +264,7 @@ Cell::surface() const {
     int i1 = edges[crosses[cross]].first, i2 = edges[crosses[cross]].second;
     double v1 = value(i1), v2 = value(i2);
     double alpha = std::abs(v1) / std::abs(v2 - v1);
-    sorted_crosses.push_back(cross);
+    sorted_crosses.push_back(crosses[cross]);
     corners.push_back(vertex(i1) * (1 - alpha) + vertex(i2) * alpha);
     normals.push_back(gradient(i1) * (1 - alpha) + gradient(i2) * alpha);
     for (int j = 0; j < n_crosses; ++j)
@@ -276,6 +279,19 @@ Cell::surface() const {
   if (sides != n_crosses)       // ambiguous case
     return { };                 // kutykurutty
 
+  // Reverse the loop if needed, such that positive is outside
+  static const std::array<int,12> left_faces = { 0, 0, 0, 0, 4, 2, 5, 3, 2, 2, 4, 5 };
+  auto const &first_edge = edges[sorted_crosses[0]];
+  auto const &second_edge = edges[sorted_crosses[1]];
+  auto const &left_face = faces[left_faces[sorted_crosses[0]]];
+  bool negative = contains(left_face, second_edge.first) && contains(left_face, second_edge.second);
+  if ((negative && values[first_edge.first] > 0) ||
+      (!negative && values[first_edge.first] < 0)) {
+    std::reverse(sorted_crosses.begin(), sorted_crosses.end());
+    std::reverse(corners.begin(), corners.end());
+    std::reverse(normals.begin(), normals.end());
+  }
+
   auto surf = std::make_unique<Surface>();
   surf->initNetwork(sides, 3);
 
@@ -289,10 +305,10 @@ Cell::surface() const {
     // and mark the central vertex in the 3-vertex case
     int ip = (i + 1) % sides;
     std::array<int,4> vertices = { 
-      edges[crosses[sorted_crosses[i]]].first,
-      edges[crosses[sorted_crosses[i]]].second,
-      edges[crosses[sorted_crosses[ip]]].first,
-      edges[crosses[sorted_crosses[ip]]].second
+      edges[sorted_crosses[i]].first,
+      edges[sorted_crosses[i]].second,
+      edges[sorted_crosses[ip]].first,
+      edges[sorted_crosses[ip]].second
     };
     std::array<bool,8> seen;
     seen.fill(false);
