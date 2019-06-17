@@ -6,6 +6,8 @@
 #include <set>
 #include <sstream>
 
+#include <Eigen/LU>
+
 #include <domain.hh>
 #include <ribbon.hh>
 #include <surface-generalized-bezier.hh>
@@ -334,9 +336,49 @@ Cell::generateSuperD(const std::vector<int> &crosses,
   int sides = points.size();
   auto surf = std::make_unique<SurfaceSuperD>();
   surf->initNetwork(sides);
-  // surf->setFaceControlPoint();
-  // surf->setEdgeControlPoint();
-  // surf->setVertexControlPoint();
+  Point3D cp(0, 0, 0);
+  for (int i = 0; i < sides; ++i) {
+    int ip = (i + 1) % sides;
+    surf->setFaceControlPoint(i, points[ip]);
+
+    // Compute normal vectors
+    std::array<int, 4> vertices = { 
+      edges[crosses[i]].first,
+      edges[crosses[i]].second,
+      edges[crosses[ip]].first,
+      edges[crosses[ip]].second
+    };
+    std::sort(vertices.begin(), vertices.end());
+    std::unique(vertices.begin(), vertices.end());
+    auto p1 = points[i], p2 = points[ip];
+    auto n1 = normals[i]; n1.normalize();
+    auto n2 = normals[ip]; n2.normalize();
+    auto pn = planeNormal(vertices[0], vertices[1], vertices[2]);
+
+    // Compute edge control point positions
+    Eigen::Matrix3d A;
+    Eigen::Vector3d b;
+    A << n1[0], n1[1], n1[2], n2[0], n2[1], n2[2], pn[0], pn[1], pn[2];
+    b << p1 * n1, p2 * n2, (p1 + p2) / 2 * pn;
+    Eigen::Vector3d x = A.fullPivLu().solve(b);
+    Point3D p(x(0), x(1), x(2));
+
+    // Move the computed point to a preferable position
+    Vector3D d1(1, 0, 0), d2(0, 1, 0);
+    if (std::abs(d1 * pn) > 0.5)
+      d1 = Vector3D(0, 0, 1);
+    else if (std::abs(d2 * pn) > 0.5)
+      d2 = Vector3D(0, 0, 1);
+    auto base = (pn[0] < 0 || pn[1] < 0 || pn[2] < 0) ? origin : origin + pn * length;
+    double t1 = (p - base) * d1, t2 = (p - base) * d2;
+    t1 = std::min(std::max(t1, 0.0), length);
+    t2 = std::min(std::max(t2, 0.0), length);
+    p = base + d1 * t1 + d2 * t2;
+
+    surf->setEdgeControlPoint(i, p);
+    cp += surf->edgeControlPoint(i);
+  }
+  surf->setVertexControlPoint(cp / sides); // kutykurutty
   surf->setupLoop();
   surf->updateRibbons();
   return surf;
@@ -422,6 +464,18 @@ auto multiply(std::pair<F1,DF1> fdf1, std::pair<F2,DF2> fdf2) {
                         });
 }
 
+auto gyroid() {
+  return std::make_pair([](const Point3D &p) {
+      return cos(p[0]) * sin(p[1]) + cos(p[1]) * sin(p[2]) + cos(p[2]) * sin(p[0]);
+    }, [](const Point3D &p) -> Vector3D {
+      return {
+          cos(p[2]) * cos(p[0]) - sin(p[0]) * sin(p[1]),
+          cos(p[0]) * cos(p[1]) - sin(p[1]) * sin(p[2]),
+          cos(p[1]) * cos(p[2]) - sin(p[2]) * sin(p[0])
+            };
+    });
+}
+
 void writeBoundaries(const std::vector<std::unique_ptr<Surface>> &surfaces,
                      const std::string &filename, size_t resolution) {
   std::ofstream f(filename);
@@ -441,16 +495,18 @@ void writeBoundaries(const std::vector<std::unique_ptr<Surface>> &surfaces,
   size_t sum = 0;
   for (size_t s : sizes) {
     for (size_t i = 1; i < s; ++i)
-      f << "l " << sum + i - 1 << ' ' << sum + i << std::endl;
-    f << "l " << sum + s - 1 << ' ' << sum << std::endl;
+      f << "l " << sum + i << ' ' << sum + i + 1 << std::endl;
+    f << "l " << sum + s << ' ' << sum + 1 << std::endl;
     sum += s;
   }
 }
 
 int main() {
   size_t resolution = 30;
-  Cell cell({ -1.6, -1.6, -1.6 }, 3);
-  cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
+  Cell cell({ -3, -3, -3 }, 6.1);
+  cell.init(gyroid(), 2, 2);
+  // Cell cell({ -1.6, -1.6, -1.6 }, 3);
+  // cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
   // Cell cell({ 0, 0, 0 }, 1);
   // cell.init(multiply(sphere({-0.1, 0, 0}, 0.5), sphere({1.2, 0.9, 0.1}, 0.6)), 0, 0);
   auto surfaces = cell.surfaces(true);
