@@ -1,16 +1,22 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <sstream>
 
+#include <domain.hh>
+#include <ribbon.hh>
 #include <surface-generalized-bezier.hh>
+#include <surface-superd.hh>
 
 #include "gb-io.hh"
 
 using namespace Geometry;
-using Surface = Transfinite::SurfaceGeneralizedBezier;
+using Transfinite::Surface;
+using Transfinite::SurfaceGeneralizedBezier;
+using Transfinite::SurfaceSuperD;
 
 template<typename Container, typename T>
 bool contains(const Container &c, const T &value) {
@@ -26,11 +32,17 @@ public:
   const Vector3D &gradient(int i) const { return gradients[i]; }
   Point3D vertex(int i) const;
   const Vector3D &planeNormal(int i, int j, int k) const;
-  std::vector<std::unique_ptr<Surface>> surface() const;
+  std::vector<std::unique_ptr<Surface>> surfaces(bool gb_patch = true) const;
 private:
   using Edge = std::pair<int,int>;
   using Face = std::array<int,4>;
   static bool samePlane(const Edge &e1, const Edge &e2);
+  std::unique_ptr<SurfaceGeneralizedBezier> generateGB(const std::vector<int> &crosses,
+                                                       const PointVector &points,
+                                                       const VectorVector &normals) const;
+  std::unique_ptr<SurfaceSuperD> generateSuperD(const std::vector<int> &crosses,
+                                                const PointVector &points,
+                                                const VectorVector &normals) const;
 
   Point3D origin;
   double length;
@@ -235,69 +247,17 @@ Cell::init(std::pair<F,DF> fdf, size_t min_levels, size_t max_levels, bool initi
   }
 }
 
-std::vector<std::unique_ptr<Surface>>
-Cell::surface() const {
-  std::vector<std::unique_ptr<Surface>> result;
-
-  if (children[0]) {
-    for (int i = 0; i < 8; ++i) {
-      auto surfaces = children[i]->surface();
-      std::move(surfaces.begin(), surfaces.end(), std::back_inserter(result));
-    }
-    return result;
-  }
-
-  std::vector<int> crosses;
-  for (int i = 0; i < 12; ++i)
-    if (value(edges[i].first) * value(edges[i].second) < 0)
-      crosses.push_back(i);
-  int n_crosses = crosses.size();
-
-  if (n_crosses == 0)           // trivial case
-    return { };
-
-  std::vector<int> sorted_crosses;
-  std::vector<Point3D> corners;
-  std::vector<Vector3D> normals;
-  int cross = 0, last_cross = -1;
-  do {
-    int i1 = edges[crosses[cross]].first, i2 = edges[crosses[cross]].second;
-    double v1 = value(i1), v2 = value(i2);
-    double alpha = std::abs(v1) / std::abs(v2 - v1);
-    sorted_crosses.push_back(crosses[cross]);
-    corners.push_back(vertex(i1) * (1 - alpha) + vertex(i2) * alpha);
-    normals.push_back(gradient(i1) * (1 - alpha) + gradient(i2) * alpha);
-    for (int j = 0; j < n_crosses; ++j)
-      if (j != last_cross && j != cross && samePlane(edges[crosses[cross]], edges[crosses[j]])) {
-        last_cross = cross;
-        cross = j;
-        break;
-      }
-  } while (cross != 0);
-  int sides = corners.size();
-
-  if (sides != n_crosses)       // ambiguous case
-    return { };                 // kutykurutty
-
-  // Reverse the loop if needed, such that positive is outside
-  static const std::array<int,12> left_faces = { 0, 0, 0, 0, 4, 2, 5, 3, 2, 2, 4, 5 };
-  auto const &first_edge = edges[sorted_crosses[0]];
-  auto const &second_edge = edges[sorted_crosses[1]];
-  auto const &left_face = faces[left_faces[sorted_crosses[0]]];
-  bool negative = contains(left_face, second_edge.first) && contains(left_face, second_edge.second);
-  if ((negative && values[first_edge.first] > 0) ||
-      (!negative && values[first_edge.first] < 0)) {
-    std::reverse(sorted_crosses.begin(), sorted_crosses.end());
-    std::reverse(corners.begin(), corners.end());
-    std::reverse(normals.begin(), normals.end());
-  }
-
-  auto surf = std::make_unique<Surface>();
+std::unique_ptr<SurfaceGeneralizedBezier>
+Cell::generateGB(const std::vector<int> &crosses,
+                 const PointVector &points,
+                 const VectorVector &normals) const {
+  int sides = points.size();
+  auto surf = std::make_unique<SurfaceGeneralizedBezier>();
   surf->initNetwork(sides, 3);
 
   // Corner control points are already computed
   for (int i = 0; i < sides; ++i)
-    surf->setControlPoint(i, 0, 0, corners[i]);
+    surf->setControlPoint(i, 0, 0, points[i]);
 
   // Tangent control points
   for (int i = 0; i < sides; ++i) {
@@ -305,10 +265,10 @@ Cell::surface() const {
     // and mark the central vertex in the 3-vertex case
     int ip = (i + 1) % sides;
     std::array<int,4> vertices = { 
-      edges[sorted_crosses[i]].first,
-      edges[sorted_crosses[i]].second,
-      edges[sorted_crosses[ip]].first,
-      edges[sorted_crosses[ip]].second
+      edges[crosses[i]].first,
+      edges[crosses[i]].second,
+      edges[crosses[ip]].first,
+      edges[crosses[ip]].second
     };
     std::array<bool,8> seen;
     seen.fill(false);
@@ -325,7 +285,7 @@ Cell::surface() const {
         vertices[k++] = j;
 
     // Now we can compute the tangent control points
-    auto p1 = corners[i], p2 = corners[ip];
+    auto p1 = points[i], p2 = points[ip];
     auto n1 = normals[i], n2 = normals[ip];
     auto pn = planeNormal(vertices[0], vertices[1], vertices[2]);
     auto t1 = n1.normalize() ^ pn, t2 = n2.normalize() ^ pn;
@@ -364,6 +324,86 @@ Cell::surface() const {
   surf->setCentralControlPoint(p / sides);
 
   surf->setupLoop();
+  return surf;
+}
+
+std::unique_ptr<SurfaceSuperD>
+Cell::generateSuperD(const std::vector<int> &crosses,
+                     const PointVector &points,
+                     const VectorVector &normals) const {
+  int sides = points.size();
+  auto surf = std::make_unique<SurfaceSuperD>();
+  surf->initNetwork(sides);
+  // surf->setFaceControlPoint();
+  // surf->setEdgeControlPoint();
+  // surf->setVertexControlPoint();
+  surf->setupLoop();
+  surf->updateRibbons();
+  return surf;
+}
+
+std::vector<std::unique_ptr<Surface>>
+Cell::surfaces(bool gb_patch) const {
+  std::vector<std::unique_ptr<Surface>> result;
+
+  if (children[0]) {
+    for (int i = 0; i < 8; ++i) {
+      auto surfaces = children[i]->surfaces(gb_patch);
+      std::move(surfaces.begin(), surfaces.end(), std::back_inserter(result));
+    }
+    return result;
+  }
+
+  std::vector<int> crosses;
+  for (int i = 0; i < 12; ++i)
+    if (value(edges[i].first) * value(edges[i].second) < 0)
+      crosses.push_back(i);
+  int n_crosses = crosses.size();
+
+  if (n_crosses == 0)           // trivial case
+    return { };
+
+  std::vector<int> sorted_crosses;
+  PointVector corners;
+  VectorVector normals;
+  int cross = 0, last_cross = -1;
+  do {
+    int i1 = edges[crosses[cross]].first, i2 = edges[crosses[cross]].second;
+    double v1 = value(i1), v2 = value(i2);
+    double alpha = std::abs(v1) / std::abs(v2 - v1);
+    sorted_crosses.push_back(crosses[cross]);
+    corners.push_back(vertex(i1) * (1 - alpha) + vertex(i2) * alpha);
+    normals.push_back(gradient(i1) * (1 - alpha) + gradient(i2) * alpha);
+    for (int j = 0; j < n_crosses; ++j)
+      if (j != last_cross && j != cross && samePlane(edges[crosses[cross]], edges[crosses[j]])) {
+        last_cross = cross;
+        cross = j;
+        break;
+      }
+  } while (cross != 0);
+  int sides = corners.size();
+
+  if (sides != n_crosses)       // ambiguous case
+    return { };                 // kutykurutty
+
+  // Reverse the loop if needed, such that positive is outside
+  static const std::array<int,12> left_faces = { 0, 0, 0, 0, 4, 2, 5, 3, 2, 2, 4, 5 };
+  auto const &first_edge = edges[sorted_crosses[0]];
+  auto const &second_edge = edges[sorted_crosses[1]];
+  auto const &left_face = faces[left_faces[sorted_crosses[0]]];
+  bool negative = contains(left_face, second_edge.first) && contains(left_face, second_edge.second);
+  if ((negative && values[first_edge.first] > 0) ||
+      (!negative && values[first_edge.first] < 0)) {
+    std::reverse(sorted_crosses.begin(), sorted_crosses.end());
+    std::reverse(corners.begin(), corners.end());
+    std::reverse(normals.begin(), normals.end());
+  }
+
+  std::unique_ptr<Surface> surf;
+  if (gb_patch)
+    surf = generateGB(sorted_crosses, corners, normals);
+  else
+    surf = generateSuperD(sorted_crosses, corners, normals);
 
   result.emplace_back(surf.release());
   return result;
@@ -382,13 +422,38 @@ auto multiply(std::pair<F1,DF1> fdf1, std::pair<F2,DF2> fdf2) {
                         });
 }
 
+void writeBoundaries(const std::vector<std::unique_ptr<Surface>> &surfaces,
+                     const std::string &filename, size_t resolution) {
+  std::ofstream f(filename);
+  std::vector<size_t> sizes;
+  for (const auto &s : surfaces) {
+    size_t n = s->domain()->size();
+    sizes.push_back(n * resolution);
+    for (size_t i = 0; i < n; ++i) {
+      auto curve = s->ribbon(i)->curve();
+      for (size_t j = 0; j < resolution; ++j) {
+        double u = (double)j / resolution;
+        auto p = curve->eval(u);
+        f << "v " << p[0] << ' ' << p[1] << ' ' << p[2] << std::endl;
+      }
+    }
+  }
+  size_t sum = 0;
+  for (size_t s : sizes) {
+    for (size_t i = 1; i < s; ++i)
+      f << "l " << sum + i - 1 << ' ' << sum + i << std::endl;
+    f << "l " << sum + s - 1 << ' ' << sum << std::endl;
+    sum += s;
+  }
+}
+
 int main() {
   size_t resolution = 30;
   Cell cell({ -1.6, -1.6, -1.6 }, 3);
   cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
   // Cell cell({ 0, 0, 0 }, 1);
   // cell.init(multiply(sphere({-0.1, 0, 0}, 0.5), sphere({1.2, 0.9, 0.1}, 0.6)), 0, 0);
-  auto surfaces = cell.surface();
+  auto surfaces = cell.surfaces(true);
   std::cout << "Generated " << surfaces.size() << " surfaces." << std::endl;
   for (size_t i = 0; i < surfaces.size(); ++i) {
     std::stringstream s;
@@ -397,4 +462,5 @@ int main() {
     // writeBezierControlPoints(*surfaces[i].get(), s.str() + "-cp.obj");
     surfaces[i]->eval(resolution).writeOBJ(s.str() + ".obj");
   }
+  writeBoundaries(surfaces, "/tmp/boundaries.obj", 50);
 }
