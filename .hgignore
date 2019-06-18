@@ -17,3 +17,4 @@ Release/*
 *.filters
 *.db
 *.opendb
+__pycache__/*
