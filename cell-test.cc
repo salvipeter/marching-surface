@@ -20,28 +20,73 @@ using Transfinite::Surface;
 using Transfinite::SurfaceGeneralizedBezier;
 using Transfinite::SurfaceSuperD;
 
+// Convenience function for testing membership
 template<typename Container, typename T>
 bool contains(const Container &c, const T &value) {
   return std::find(c.begin(), c.end(), value) != c.end();
 }
 
+// The main class, represents one cell (but it can generate subcells)
 class Cell {
 public:
+  // The constructor requires the cell's origin point and edge length,
+  // so the cell's corner far from its origin will be `origin + Vector3D(length,length,length)`
   Cell(const Point3D &origin, double length);
+
+  // Initializes the cell with the given implicit function.
+  //  `F` should be of the type `Point3D -> double`,   [the distance]
+  // `dF` should be of the type `Point3D -> Vector3D`. [the gradient]
+  // `min_levels` is the minimum number of times subdivision should be performed,
+  // `max_levels` is the maximum number of times subdivision should be performed.
+  // The variable `initialized` is used for efficient evaluation of subcells.
+  // Subdivisions between `min_levels` and `max_levels` are performed when the cell
+  // is not splittable into two (i.e., it would define multiple surfaces).
   template<typename F, typename DF>
   void init(std::pair<F,DF> fdf, size_t min_levels, size_t max_levels, bool initialized = false);
+
+  // Returns the value at the `i`-th vertex (see `vertex`)
   double value(int i) const { return values[i]; }
+
+  // Returns the gradient at the `i`-th vertex (see `vertex`)
   const Vector3D &gradient(int i) const { return gradients[i]; }
+
+  // Returns the position of the `i`-th vertex.
+  // For the numbering scheme, see the diagram below:
+  //       7         6
+  //      +--------+
+  //     /|       /|
+  //  3 / |    2 / |
+  //   +--------+  |          y
+  //   |  +-----|--+          ^
+  //   | / 4    | / 5         | z
+  //   |/       |/            |/
+  // 0 +--------+ 1           +---> x
   Point3D vertex(int i) const;
+
+  // Returns the normal vector of the plane containing vertices `i`, `j` and `k` (see `vertex`)
   const Vector3D &planeNormal(int i, int j, int k) const;
+
+  // Generates surfaces approximating the implicit function given with `init`.
+  // When `gb_patch` is set, the output is a collection of Generalized Bezier patches,
+  // otherwise SuperD patches are used.
   std::vector<std::unique_ptr<Surface>> surfaces(bool gb_patch = true) const;
+
 private:
+  // Edges and faces are represented by their vertices (see `vertex`)
   using Edge = std::pair<int,int>;
   using Face = std::array<int,4>;
+
+  // Returns whether two edges belong to the same plane
   static bool samePlane(const Edge &e1, const Edge &e2);
+
+  // Generates a GB patch, given a sorted list of crossed edges,
+  // and the corresponding points and normal vectors.
   std::unique_ptr<SurfaceGeneralizedBezier> generateGB(const std::vector<int> &crosses,
                                                        const PointVector &points,
                                                        const VectorVector &normals) const;
+
+  // Generates a SuperD patch, given a sorted list of crossed edges,
+  // and the corresponding points and normal vectors.
   std::unique_ptr<SurfaceSuperD> generateSuperD(const std::vector<int> &crosses,
                                                 const PointVector &points,
                                                 const VectorVector &normals) const;
@@ -57,17 +102,6 @@ private:
   static const std::array<Vector3D,6> planes;
   static const std::array<int,64> refinement;
   static const std::array<unsigned char,122> good_configs;
-  /*
-       7         6
-      +--------+
-     /|       /|
-  3 / |    2 / |
-   +--------+  |          y
-   |  +-----|--+          ^
-   | / 4    | / 5         | z
-   |/       |/            |/
- 0 +--------+ 1           +---> x
-   */
 };
 
 Cell::Cell(const Point3D &origin, double length)
