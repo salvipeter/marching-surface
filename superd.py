@@ -1,7 +1,7 @@
 import math
 import numpy as np
+import struct
 
-
 #########################
 # SuperD implementation #
 #########################
@@ -18,7 +18,7 @@ import numpy as np
 # Example:
 # >>> import superd
 # >>> m = superd.read_model('trebol.sdm')
-# >>> superd.write_model(m, 30, '/tmp/test.stl')
+# >>> superd.write_model(m, 15, '/tmp/test.stl')
 
 fullness = 0.5                     # Fullness is currently a global variable.
 
@@ -26,20 +26,25 @@ fullness = 0.5                     # Fullness is currently a global variable.
 # Utilities
 
 def normalize(v):
-    """A normalized version of `v`. Does not change the original"""
+    """A normalized version of `v`. Does not change the original."""
     norm = np.linalg.norm(v)
     if norm == 0: 
        return v
     return v / norm
 
 def affine_combine(p, x, q):
-    """Linear interpolation between `p` and `q`, giving `p` when `x=0`"""
+    """Linear interpolation between `p` and `q`, giving `p` when `x=0`."""
     return p * (1 - x) + q * x
 
 
 # Parameterization
 
 def generate_domain(n):
+    """Generates a `dict` object, containing the following information:
+       - `v`: a list of `n` 2D points (`numpy` arrays) forming a regular polygon
+       - `dir`: a list of `n` 2D vectors (`numpy` arrays), the cross-boundary directions
+       - `md`: the "maximal distance" - a normalization constant for the parameterization
+    """
     v = [np.array([math.cos(a), math.sin(a)]) for a in np.linspace(0, 2 * math.pi, n + 1)][:n]
     def calc_dir(i):
         w = normalize(v[i] - v[(i-1)%n])
@@ -50,6 +55,10 @@ def generate_domain(n):
     return dict(v = v, dir = dir, md = md)
 
 def parameters(domain, p):
+    """Given a `domain` and a 2D point, computes the `s` and `d` coordinates.
+       (In SuperD terminology, these should be called `t` and `s`.)
+       The return value is a tuple of two lists.
+    """
     n = len(domain['v'])
     d = [np.dot(p - domain['v'][i], domain['dir'][i]) / domain['md'] for i in range(n)]
     def calc_s(i):
@@ -64,6 +73,9 @@ def parameters(domain, p):
 # Ribbon generation
 
 def generate_quartic(points):
+    """Given three 3D points in a list, generates a quartic Bezier curve.
+       The return value is a list of five control points.
+    """
     x1 = (2/5 * fullness + 3/5) * fullness
     x2 = (-2/7 * fullness + 9/7) * fullness
     return [points[0],
@@ -75,15 +87,18 @@ def generate_quartic(points):
             points[2]]
 
 def generate_base(patch, i):
+    """Generates the `i`-th base curve of the `patch`."""
     im = (i - 1) % patch['n']
     return generate_quartic([patch['f'][im], patch['e'][i], patch['f'][i]])
 
 def generate_mid(patch, i):
+    """Generates the `i`-th mid curve of the `patch`."""
     im = (i - 1) % patch['n']
     ip = (i + 1) % patch['n']
     return generate_quartic([patch['e'][im], patch['v'], patch['e'][ip]])
 
 def generate_opp(patch, i):
+    """Generates the `i`-th opp curve of the `patch` (assumes triangular/quadrilateral patch)."""
     n = patch['n']
     if n == 3:
         return [patch['f'][(i+1)%n] for _ in range(5)]
@@ -92,6 +107,11 @@ def generate_opp(patch, i):
     assert False, "generate_opp() should only be called with 3 or 4 sides"
 
 def generate_ribbon(patch, i):
+    """Computes the `i`-th ribbon of the `patch` (a quartic Bezier surface).
+    The return value is a 5x5 matrix of control points, represented by a list of lists.
+    When the number of sides is at least 5, the ribbon is a blend of the left and right
+    base curves. Otherwise it is generated using the base, mid and opp curves.
+    """
     result = []
     base = generate_base(patch, i)
     if patch['n'] > 4:
@@ -113,9 +133,13 @@ def generate_ribbon(patch, i):
 # Patch definition
 
 def blend(d, i):
+    """Kato blend associated with the `i`-th side, given `d` distance coordinates."""
     return np.prod([d[j] ** 2 for j in set(range(len(d))).difference([i])])
 
 def bernstein(n, u):
+    """Computes all Bernstein polynomials of degree `n` at parameter `u`.
+       The return value is a list of `n+1` elements.
+    """
     coeff = [1]
     for j in range(n):
         saved = 0
@@ -127,6 +151,9 @@ def bernstein(n, u):
     return coeff
 
 def eval_bezier(cp, u, v):
+    """Evaluates a Bezier surface at parameters `(u,v)`.
+       The control network is given as a list of lists of 3D points.
+    """
     order = [len(cp), len(cp[0])]
     coeff_u = bernstein(order[0] - 1, u)
     coeff_v = bernstein(order[1] - 1, v)
@@ -137,6 +164,7 @@ def eval_bezier(cp, u, v):
     return result
 
 def eval_patch_impl(domain, ribbons, p):
+    """Evaluates a SuperD patch at a `p` parameter, given its `domain` and `ribbons`."""
     result = np.array([0., 0, 0])
     n = len(ribbons)
     s, d = parameters(domain, p)
@@ -152,6 +180,7 @@ def eval_patch_impl(domain, ribbons, p):
     return result
 
 def eval_patch(patch, p):
+    """Evaluates a SuperD `patch` at a `p` parameter."""
     domain = generate_domain(patch['n'])
     ribbons = [generate_ribbon(patch, i) for i in range(patch['n'])]
     return eval_patch_impl(domain, ribbons, p)
@@ -160,6 +189,10 @@ def eval_patch(patch, p):
 # I/O
 
 def vertices(poly, resolution):
+    """Samples the domain polygon `poly` at the given `resolution`.
+       The algorithm works by subdividing the polygon to triangles.
+       Three- and four-sided cases are handled specially.
+    """
     result = []
     n = len(poly)
     if n == 3:
@@ -193,6 +226,9 @@ def vertices(poly, resolution):
     return result
 
 def triangles(n, resolution):
+    """Returns a triangulation of the points resulting from a call to `vertices`.
+       The return value is a list of 3-element lists containing 0-based indices.
+    """
     result = []
     if n == 3:
         prev = 0
@@ -233,14 +269,24 @@ def triangles(n, resolution):
         inner_start = outer_start
     return result
 
-def mesh_size(n, resolution):
+def mesh_vertices_size(n, resolution):
+    """Returns the number of vertices generated by a call to `vertices`."""
     if n == 3:
         return (resolution + 1) * (resolution + 2) // 2
     if n == 4:
         return (resolution + 1) ** 2
     return 1 + n * resolution * (resolution + 1) // 2
 
+def mesh_faces_size(n, resolution):
+    """Returns the number of faces generated by a call to `triangles`."""
+    if n == 3:
+        return resolution ** 2
+    if n == 4:
+        return 2 * resolution ** 2
+    return n * resolution ** 2
+
 def write_obj(verts, tris, filename):
+    """Writes a mesh to an OBJ file. The mesh is given as a list of vertices and triangles."""
     with open(filename, 'w') as f:
         for v in verts:
             f.write("v {0} {1} {2}\n".format(v[0], v[1], v[2]))
@@ -255,7 +301,14 @@ def write_patch(patch, resolution, filename):
     write_obj(points, triangles(patch['n'], resolution), filename)
 
 def read_model(filename):
-    """Reads a SuperD Model (SDM) file."""
+    """Reads a SuperD Model (SDM) file.
+       The SDM file format is the following:
+       - np               # number of patches, then for the i-th patch:
+         - n              # number of sides of the i-th patch
+         - pf_1 ... pf_n  # face-midpoints (each represented as x y z coordinates)
+         - pe_1 ... pe_n  # edge-midpoints (each represented as x y z coordinates)
+         - pv             # central vertex (represented as x y z coordinates)
+    """
     result = []
     def read_point(f):
         return np.array(list(map(float, f.readline().split())))
@@ -288,8 +341,8 @@ def write_model(model, resolution, filename):
     """Writes `model` (a list of patches) into an STL file."""
     with open(filename, "wb") as f:
         f.write(b'Generated by SuperD.' + b' ' * 60)
-        n_faces = sum([mesh_size(patch['n'], resolution) for patch in model])
-        f.write(int(n_faces).to_bytes(4, byteorder='big', signed=False))
+        n_faces = sum([mesh_faces_size(patch['n'], resolution) for patch in model])
+        f.write(int(n_faces).to_bytes(4, byteorder='little', signed=False))
         for patch in model:
             domain = generate_domain(patch['n'])
             ribbons = [generate_ribbon(patch, i) for i in range(patch['n'])]
@@ -298,7 +351,8 @@ def write_model(model, resolution, filename):
             for tri in triangles(patch['n'], resolution):
                 n = normalize(np.cross(points[tri[1]] - points[tri[0]],
                                        points[tri[2]] - points[tri[0]]))
-                np.array(n, 'float32').tofile(f)
+                f.write(struct.pack('<fff', n[0], n[1], n[2]))
                 for i in range(3):
-                    np.array(points[tri[i]], 'float32').tofile(f)
-                f.write(int(0).to_bytes(2, byteorder='big', signed=False))
+                    p = points[tri[i]]
+                    f.write(struct.pack('<fff', p[0], p[1], p[2]))
+                f.write(int(0).to_bytes(2, byteorder='little', signed=False))
