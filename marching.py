@@ -1,4 +1,5 @@
 import numpy as np
+import superd
 
 #####################
 # Marching Surfaces #
@@ -12,6 +13,7 @@ import numpy as np
 # ...            2)                                    # Number of subdivisons (-> 8^2 = 64 cells)
 # >>> m = c.surfaces()
 # >>> superd.write_model(m, 15, '/tmp/sphere.stl')
+# >>> superd.write_boundaries(m, 50, '/tmp/sphere-boundaries.obj')
 
 class Cell:
 
@@ -179,9 +181,9 @@ class Cell:
             # Move the computed point to a preferable position
             d1 = np.array([1., 0, 0])
             d2 = np.array([0., 1, 0])
-            if abs(np.dot(d1, pn) > 0.5):
+            if abs(np.dot(d1, pn)) > 0.5:
                 d1 = np.array([0., 0, 1])
-            elif abs(np.dot(d2, pn) > 0.5):
+            elif abs(np.dot(d2, pn)) > 0.5:
                 d2 = np.array([0., 0, 1])
             base = self.origin if min(pn) < 0 else self.origin + pn * self.length
             t1 = np.dot(p - base, d1)
@@ -250,3 +252,10 @@ def normalize(v):
     if norm == 0: 
        return v
     return v / norm
+
+def run_example():
+    c = Cell(np.array([-1.6, -1.6, -1.6]), 3)
+    c.evaluate(lambda p: np.linalg.norm(p) - 1, lambda p: normalize(p), 2)
+    m = c.surfaces()
+    superd.write_model(m, 15, '/tmp/sphere.stl')
+    superd.write_boundaries(m, 50, '/tmp/sphere-boundaries.obj')
