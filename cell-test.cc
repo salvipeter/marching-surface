@@ -537,19 +537,23 @@ void writeBoundaries(const std::vector<std::unique_ptr<Surface>> &surfaces,
 
 int main() {
   size_t resolution = 30;
+  bool gb_patch = true;
   Cell cell({ -3, -3, -3 }, 6.1);
   cell.init(gyroid(), 2, 2);
   // Cell cell({ -1.6, -1.6, -1.6 }, 3);
   // cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
   // Cell cell({ 0, 0, 0 }, 1);
   // cell.init(multiply(sphere({-0.1, 0, 0}, 0.5), sphere({1.2, 0.9, 0.1}, 0.6)), 0, 0);
-  auto surfaces = cell.surfaces(true);
+  auto surfaces = cell.surfaces(gb_patch);
   std::cout << "Generated " << surfaces.size() << " surfaces." << std::endl;
   for (size_t i = 0; i < surfaces.size(); ++i) {
     std::stringstream s;
     s << "/tmp/cell-" << i;
-    // saveBezier(*surfaces[i].get(), s.str() + ".gbp");
-    // writeBezierControlPoints(*surfaces[i].get(), s.str() + "-cp.obj");
+    if (gb_patch) {
+      auto *gb = dynamic_cast<SurfaceGeneralizedBezier*>(surfaces[i].get());
+      // saveBezier(*gb, s.str() + ".gbp");
+      writeBezierControlPoints(*gb, s.str() + "-cp.obj");
+    }
     surfaces[i]->eval(resolution).writeOBJ(s.str() + ".obj");
   }
   writeBoundaries(surfaces, "/tmp/boundaries.obj", 50);
