@@ -41,9 +41,9 @@ def affine_combine(p, x, q):
 
 def generate_domain(n):
     """Generates a `dict` object, containing the following information:
-       - `v`: a list of `n` 2D points (`numpy` arrays) forming a regular polygon
-       - `dir`: a list of `n` 2D vectors (`numpy` arrays), the cross-boundary directions
-       - `md`: the "maximal distance" - a normalization constant for the parameterization
+    - `v`: a list of `n` 2D points (`numpy` arrays) forming a regular polygon
+    - `dir`: a list of `n` 2D vectors (`numpy` arrays), the cross-boundary directions
+    - `md`: the "maximal distance" - a normalization constant for the parameterization
     """
     v = [np.array([math.cos(a), math.sin(a)]) for a in np.linspace(0, 2 * math.pi, n + 1)][:n]
     def calc_dir(i):
@@ -56,8 +56,8 @@ def generate_domain(n):
 
 def parameters(domain, p):
     """Given a `domain` and a 2D point, computes the `s` and `d` coordinates.
-       (In SuperD terminology, these should be called `t` and `s`.)
-       The return value is a tuple of two lists.
+    (In SuperD terminology, these should be called `t` and `s`.)
+    The return value is a tuple of two lists.
     """
     n = len(domain['v'])
     d = [np.dot(p - domain['v'][i], domain['dir'][i]) / domain['md'] for i in range(n)]
@@ -74,7 +74,7 @@ def parameters(domain, p):
 
 def generate_quartic(points):
     """Given three 3D points in a list, generates a quartic Bezier curve.
-       The return value is a list of five control points.
+    The return value is a list of five control points.
     """
     x1 = (2/5 * fullness + 3/5) * fullness
     x2 = (-2/7 * fullness + 9/7) * fullness
@@ -138,7 +138,7 @@ def blend(d, i):
 
 def bernstein(n, u):
     """Computes all Bernstein polynomials of degree `n` at parameter `u`.
-       The return value is a list of `n+1` elements.
+    The return value is a list of `n+1` elements.
     """
     coeff = [1]
     for j in range(n):
@@ -152,7 +152,7 @@ def bernstein(n, u):
 
 def eval_bezier(cp, u, v):
     """Evaluates a Bezier surface at parameters `(u,v)`.
-       The control network is given as a list of lists of 3D points.
+    The control network is given as a list of lists of 3D points.
     """
     order = [len(cp), len(cp[0])]
     coeff_u = bernstein(order[0] - 1, u)
@@ -190,8 +190,8 @@ def eval_patch(patch, p):
 
 def vertices(poly, resolution):
     """Samples the domain polygon `poly` at the given `resolution`.
-       The algorithm works by subdividing the polygon to triangles.
-       Three- and four-sided cases are handled specially.
+    The algorithm works by subdividing the polygon to triangles.
+    Three- and four-sided cases are handled specially.
     """
     result = []
     n = len(poly)
@@ -227,7 +227,7 @@ def vertices(poly, resolution):
 
 def triangles(n, resolution):
     """Returns a triangulation of the points resulting from a call to `vertices`.
-       The return value is a list of 3-element lists containing 0-based indices.
+    The return value is a list of 3-element lists containing 0-based indices.
     """
     result = []
     if n == 3:
@@ -302,12 +302,12 @@ def write_patch(patch, resolution, filename):
 
 def read_model(filename):
     """Reads a SuperD Model (SDM) file.
-       The SDM file format is the following:
-       - np               # number of patches, then for the i-th patch:
-         - n              # number of sides of the i-th patch
-         - pf_1 ... pf_n  # face-midpoints (each represented as x y z coordinates)
-         - pe_1 ... pe_n  # edge-midpoints (each represented as x y z coordinates)
-         - pv             # central vertex (represented as x y z coordinates)
+    The SDM file format is the following:
+    - np               # number of patches, then for the i-th patch:
+      - n              # number of sides of the i-th patch
+      - pf_1 ... pf_n  # face-midpoints (each represented as x y z coordinates)
+      - pe_1 ... pe_n  # edge-midpoints (each represented as x y z coordinates)
+      - pv             # central vertex (represented as x y z coordinates)
     """
     result = []
     def read_point(f):
