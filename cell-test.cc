@@ -14,6 +14,7 @@
 #include <surface-superd.hh>
 
 #include "gb-io.hh"
+#include "superd-io.hh"
 
 using namespace Geometry;
 using Transfinite::Surface;
@@ -537,7 +538,7 @@ void writeBoundaries(const std::vector<std::unique_ptr<Surface>> &surfaces,
 
 int main() {
   size_t resolution = 30;
-  bool gb_patch = true;
+  bool gb_patch = false;
   Cell cell({ -3, -3, -3 }, 6.1);
   cell.init(gyroid(), 2, 2);
   // Cell cell({ -1.6, -1.6, -1.6 }, 3);
@@ -553,6 +554,9 @@ int main() {
       auto *gb = dynamic_cast<SurfaceGeneralizedBezier*>(surfaces[i].get());
       // saveBezier(*gb, s.str() + ".gbp");
       writeBezierControlPoints(*gb, s.str() + "-cp.obj");
+    } else {
+      auto *sd = dynamic_cast<SurfaceSuperD*>(surfaces[i].get());
+      writeSuperDControlPoints(*sd, s.str() + "-cp.obj");
     }
     surfaces[i]->eval(resolution).writeOBJ(s.str() + ".obj");
   }
