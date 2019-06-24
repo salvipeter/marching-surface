@@ -11,6 +11,7 @@
 #include <domain.hh>
 #include <ribbon.hh>
 #include <surface-generalized-bezier.hh>
+#include <surface-spatch.hh>
 #include <surface-superd.hh>
 
 #include "gb-io.hh"
@@ -19,7 +20,10 @@
 using namespace Geometry;
 using Transfinite::Surface;
 using Transfinite::SurfaceGeneralizedBezier;
+using Transfinite::SurfaceSPatch;
 using Transfinite::SurfaceSuperD;
+
+enum class SurfaceType { GENERALIZED_BEZIER, SUPERD, SPATCH };
 
 // Convenience function for testing membership
 template<typename Container, typename T>
@@ -67,10 +71,8 @@ public:
   // Returns the normal vector of the plane containing vertices `i`, `j` and `k` (see `vertex`)
   const Vector3D &planeNormal(int i, int j, int k) const;
 
-  // Generates surfaces approximating the implicit function given with `init`.
-  // When `gb_patch` is set, the output is a collection of Generalized Bezier patches,
-  // otherwise SuperD patches are used.
-  std::vector<std::unique_ptr<Surface>> surfaces(bool gb_patch = true) const;
+  // Generates surfaces of the given type, approximating the implicit function given with `init`.
+  std::vector<std::unique_ptr<Surface>> surfaces(SurfaceType type) const;
 
 private:
   // Edges and faces are represented by their vertices (see `vertex`)
@@ -89,6 +91,12 @@ private:
   // Generates a SuperD patch, given a sorted list of crossed edges,
   // and the corresponding points and normal vectors.
   std::unique_ptr<SurfaceSuperD> generateSuperD(const std::vector<int> &crosses,
+                                                const PointVector &points,
+                                                const VectorVector &normals) const;
+
+  // Generates an S-patch, given a sorted list of crossed edges,
+  // and the corresponding points and normal vectors.
+  std::unique_ptr<SurfaceSPatch> generateSPatch(const std::vector<int> &crosses,
                                                 const PointVector &points,
                                                 const VectorVector &normals) const;
 
@@ -419,13 +427,31 @@ Cell::generateSuperD(const std::vector<int> &crosses,
   return surf;
 }
 
+std::unique_ptr<SurfaceSPatch>
+Cell::generateSPatch(const std::vector<int> &crosses,
+                     const PointVector &points,
+                     const VectorVector &normals) const {
+  int sides = points.size(), depth = 1; // TODO: should be 3
+  auto surf = std::make_unique<SurfaceSPatch>();
+  surf->initNetwork(sides, depth);
+  Point3D cp(0, 0, 0);
+  SurfaceSPatch::Index index(sides);
+  for (int i = 0; i < sides; ++i) {
+    std::fill(index.begin(), index.end(), 0);
+    index[i] = depth;
+    surf->setControlPoint(index, points[i]);
+  }
+  surf->setupLoop();
+  return surf;
+}
+
 std::vector<std::unique_ptr<Surface>>
-Cell::surfaces(bool gb_patch) const {
+Cell::surfaces(SurfaceType type) const {
   std::vector<std::unique_ptr<Surface>> result;
 
   if (children[0]) {
     for (int i = 0; i < 8; ++i) {
-      auto surfaces = children[i]->surfaces(gb_patch);
+      auto surfaces = children[i]->surfaces(type);
       std::move(surfaces.begin(), surfaces.end(), std::back_inserter(result));
     }
     return result;
@@ -477,10 +503,19 @@ Cell::surfaces(bool gb_patch) const {
   }
 
   std::unique_ptr<Surface> surf;
-  if (gb_patch)
+  switch (type) {
+  case SurfaceType::GENERALIZED_BEZIER:
     surf = generateGB(sorted_crosses, corners, normals);
-  else
+    break;
+  case SurfaceType::SUPERD:
     surf = generateSuperD(sorted_crosses, corners, normals);
+    break;
+  case SurfaceType::SPATCH:
+    surf = generateSPatch(sorted_crosses, corners, normals);
+    break;
+  default:
+    assert(false && "Invalid patch type");
+  }
 
   result.emplace_back(surf.release());
   return result;
@@ -538,25 +573,34 @@ void writeBoundaries(const std::vector<std::unique_ptr<Surface>> &surfaces,
 
 int main() {
   size_t resolution = 30;
-  bool gb_patch = false;
+  SurfaceType type = SurfaceType::SPATCH;
   Cell cell({ -3, -3, -3 }, 6.1);
   cell.init(gyroid(), 2, 2);
   // Cell cell({ -1.6, -1.6, -1.6 }, 3);
   // cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
   // Cell cell({ 0, 0, 0 }, 1);
   // cell.init(multiply(sphere({-0.1, 0, 0}, 0.5), sphere({1.2, 0.9, 0.1}, 0.6)), 0, 0);
-  auto surfaces = cell.surfaces(gb_patch);
+  auto surfaces = cell.surfaces(type);
   std::cout << "Generated " << surfaces.size() << " surfaces." << std::endl;
   for (size_t i = 0; i < surfaces.size(); ++i) {
     std::stringstream s;
     s << "/tmp/cell-" << i;
-    if (gb_patch) {
-      auto *gb = dynamic_cast<SurfaceGeneralizedBezier*>(surfaces[i].get());
-      // saveBezier(*gb, s.str() + ".gbp");
-      writeBezierControlPoints(*gb, s.str() + "-cp.obj");
-    } else {
-      auto *sd = dynamic_cast<SurfaceSuperD*>(surfaces[i].get());
-      writeSuperDControlPoints(*sd, s.str() + "-cp.obj");
+    switch (type) {
+    case SurfaceType::GENERALIZED_BEZIER:
+      {
+        auto *gb = dynamic_cast<SurfaceGeneralizedBezier*>(surfaces[i].get());
+        // saveBezier(*gb, s.str() + ".gbp");
+        writeBezierControlPoints(*gb, s.str() + "-cp.obj");
+      }
+      break;
+    case SurfaceType::SUPERD:
+      {
+        auto *sd = dynamic_cast<SurfaceSuperD*>(surfaces[i].get());
+        writeSuperDControlPoints(*sd, s.str() + "-cp.obj");
+      }
+      break;
+    default:
+      ;
     }
     surfaces[i]->eval(resolution).writeOBJ(s.str() + ".obj");
   }
