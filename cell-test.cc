@@ -546,6 +546,12 @@ auto gyroid() {
     });
 }
 
+template<typename F, typename DF>
+auto normalized(std::pair<F,DF> fdf) {
+  return std::make_pair([=](const Point3D &p) { return fdf.first(p) / fdf.second(p).norm(); },
+                        fdf.second);
+}
+
 void writeBoundaries(const std::vector<std::unique_ptr<Surface>> &surfaces,
                      const std::string &filename, size_t resolution) {
   std::ofstream f(filename);
@@ -573,9 +579,9 @@ void writeBoundaries(const std::vector<std::unique_ptr<Surface>> &surfaces,
 
 int main() {
   size_t resolution = 30;
-  SurfaceType type = SurfaceType::SPATCH;
+  SurfaceType type = SurfaceType::GENERALIZED_BEZIER;
   Cell cell({ -3, -3, -3 }, 6.1);
-  cell.init(gyroid(), 2, 2);
+  cell.init(normalized(gyroid()), 2, 2);
   // Cell cell({ -1.6, -1.6, -1.6 }, 3);
   // cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
   // Cell cell({ 0, 0, 0 }, 1);

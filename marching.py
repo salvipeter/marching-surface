@@ -31,18 +31,19 @@ class Cell:
         `f` is the distance function, `df` is its gradient.
         `levels` is the number of times subdivision should be performed.
         The variable `initialized` is used for efficient evaluation of subcells.
+        The distance function is automatically normalized by the norm of the gradient.
         """
-        self.values = [f(self.vertex(i)) for i in range(8)]
         self.gradients = [df(self.vertex(i)) for i in range(8)]
+        self.values = [f(self.vertex(i)) / np.linalg.norm(self.gradients[i]) for i in range(8)]
         self.children = []
         if levels > 0:
             new_length = self.length / 2
-            new_values = []
             new_gradients = []
+            new_values = []
             def add(i, j, k):
                 p = self.origin + np.array([i, j, k], 'float64') * new_length
-                new_values.append(f(p))
                 new_gradients.append(df(p))
+                new_values.append(f(p) / np.linalg.norm(new_gradients[-1]))
             # Edge midpoints
             add(1, 0, 0)
             add(2, 1, 0) #
