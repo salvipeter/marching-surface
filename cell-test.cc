@@ -350,7 +350,7 @@ Cell::generateGB(const std::vector<int> &crosses,
     }
 
     // Scale the tangents and set the control points
-    double scaling = (p1 - p2).norm() / 3.0; // kutykurutty
+    double scaling = length / 3.0; // kutykurutty
     surf->setControlPoint(i, 1, 0, p1 + t1 * scaling);
     surf->setControlPoint(i, 2, 0, p2 + t2 * scaling);
   }
