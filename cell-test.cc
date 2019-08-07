@@ -71,8 +71,11 @@ public:
   // Returns the normal vector of the plane containing vertices `i`, `j` and `k` (see `vertex`)
   const Vector3D &planeNormal(int i, int j, int k) const;
 
-  // Generates surfaces of the given type, approximating the implicit function given with `init`.
-  std::vector<std::unique_ptr<Surface>> surfaces(SurfaceType type) const;
+  // Generates surfaces of the given type, approximating the implicit function given with `init`
+  void generateSurfaces(SurfaceType type);
+
+  // Accumulates all the generated surfaces
+  std::vector<std::shared_ptr<Surface>> surfaces() const;
 
 private:
   // Edges and faces are represented by their vertices (see `vertex`)
@@ -100,11 +103,16 @@ private:
                                                 const PointVector &points,
                                                 const VectorVector &normals) const;
 
+  void generateSurfacesPass1(SurfaceType type);
+  void generateSurfacesPass2(SurfaceType type);
+
   Point3D origin;
   double length;
   std::array<double, 8> values;
   std::array<Vector3D, 8> gradients;
-  std::array<std::unique_ptr<Cell>,8> children;
+  std::shared_ptr<Surface> surface;
+  std::array<std::shared_ptr<Cell>,8> children;
+  std::array<std::weak_ptr<Cell>,6> neighbors;
 
   static const std::array<Edge,12> edges;
   static const std::array<Face,6> faces;
@@ -364,9 +372,12 @@ Cell::generateGB(const std::vector<int> &crosses,
 
   // Central control point is the mass center of the twist control points
   p = Point3D(0, 0, 0);
-  for (int i = 0; i < sides; ++i)
+  auto q = Point3D(0, 0, 0);
+  for (int i = 0; i < sides; ++i) {
     p += surf->controlPoint(i, 1, 1);
-  surf->setCentralControlPoint(p / sides);
+    q += surf->controlPoint(i, 0, 0);
+  }
+  surf->setCentralControlPoint((p * 2 - q) / sides);
 
   surf->setupLoop();
   return surf;
@@ -445,17 +456,15 @@ Cell::generateSPatch(const std::vector<int> &crosses,
   return surf;
 }
 
-std::vector<std::unique_ptr<Surface>>
-Cell::surfaces(SurfaceType type) const {
-  std::vector<std::unique_ptr<Surface>> result;
-
+void
+Cell::generateSurfacesPass1(SurfaceType type) {
   if (children[0]) {
-    for (int i = 0; i < 8; ++i) {
-      auto surfaces = children[i]->surfaces(type);
-      std::move(surfaces.begin(), surfaces.end(), std::back_inserter(result));
-    }
-    return result;
+    for (int i = 0; i < 8; ++i)
+      children[i]->generateSurfacesPass1(type);
+    return;
   }
+
+  surface.reset();
 
   std::vector<int> crosses;
   for (int i = 0; i < 12; ++i)
@@ -464,7 +473,7 @@ Cell::surfaces(SurfaceType type) const {
   int n_crosses = crosses.size();
 
   if (n_crosses == 0)           // trivial case
-    return { };
+    return;
 
   std::vector<int> sorted_crosses;
   PointVector corners;
@@ -487,7 +496,7 @@ Cell::surfaces(SurfaceType type) const {
   int sides = corners.size();
 
   if (sides != n_crosses)       // ambiguous case
-    return { };                 // kutykurutty
+    return;                     // kutykurutty
 
   // Reverse the loop if needed, such that positive is outside
   static const std::array<int,12> left_faces = { 0, 0, 0, 0, 4, 2, 5, 3, 2, 2, 4, 5 };
@@ -502,22 +511,48 @@ Cell::surfaces(SurfaceType type) const {
     std::reverse(normals.begin(), normals.end());
   }
 
-  std::unique_ptr<Surface> surf;
   switch (type) {
   case SurfaceType::GENERALIZED_BEZIER:
-    surf = generateGB(sorted_crosses, corners, normals);
+    surface = generateGB(sorted_crosses, corners, normals);
     break;
   case SurfaceType::SUPERD:
-    surf = generateSuperD(sorted_crosses, corners, normals);
+    surface = generateSuperD(sorted_crosses, corners, normals);
     break;
   case SurfaceType::SPATCH:
-    surf = generateSPatch(sorted_crosses, corners, normals);
+    surface = generateSPatch(sorted_crosses, corners, normals);
     break;
   default:
     assert(false && "Invalid patch type");
   }
+}
 
-  result.emplace_back(surf.release());
+void
+Cell::generateSurfacesPass2(SurfaceType type) {
+  if (type != SurfaceType::GENERALIZED_BEZIER)
+    return;
+  
+}
+
+void
+Cell::generateSurfaces(SurfaceType type) {
+  generateSurfacesPass1(type);
+  generateSurfacesPass2(type);
+}
+
+std::vector<std::shared_ptr<Surface>>
+Cell::surfaces() const {
+  std::vector<std::shared_ptr<Surface>> result;
+
+  if (children[0]) {
+    for (int i = 0; i < 8; ++i) {
+      auto surfaces = children[i]->surfaces();
+      std::move(surfaces.begin(), surfaces.end(), std::back_inserter(result));
+    }
+    return result;
+  }
+
+  if (surface)
+    result.emplace_back(surface);
   return result;
 }
 
@@ -552,7 +587,7 @@ auto normalized(std::pair<F,DF> fdf) {
                         fdf.second);
 }
 
-void writeBoundaries(const std::vector<std::unique_ptr<Surface>> &surfaces,
+void writeBoundaries(const std::vector<std::shared_ptr<Surface>> &surfaces,
                      const std::string &filename, size_t resolution) {
   std::ofstream f(filename);
   std::vector<size_t> sizes;
@@ -578,19 +613,24 @@ void writeBoundaries(const std::vector<std::unique_ptr<Surface>> &surfaces,
 }
 
 int main() {
+  bool generate_controlnet = false;
   size_t resolution = 30;
   SurfaceType type = SurfaceType::GENERALIZED_BEZIER;
-  Cell cell({ -3, -3, -3 }, 6.1);
-  cell.init(normalized(gyroid()), 2, 2);
-  // Cell cell({ -1.6, -1.6, -1.6 }, 3);
-  // cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
+  // Cell cell({ -3, -3, -3 }, 6.1);
+  // cell.init(normalized(gyroid()), 3, 3);
+  Cell cell({ -1.6, -1.6, -1.6 }, 3);
+  cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
   // Cell cell({ 0, 0, 0 }, 1);
   // cell.init(multiply(sphere({-0.1, 0, 0}, 0.5), sphere({1.2, 0.9, 0.1}, 0.6)), 0, 0);
-  auto surfaces = cell.surfaces(type);
+  cell.generateSurfaces(type);
+  auto surfaces = cell.surfaces();
   std::cout << "Generated " << surfaces.size() << " surfaces." << std::endl;
   for (size_t i = 0; i < surfaces.size(); ++i) {
     std::stringstream s;
     s << "/tmp/cell-" << i;
+    surfaces[i]->eval(resolution).writeOBJ(s.str() + ".obj");
+    if (!generate_controlnet)
+      continue;
     switch (type) {
     case SurfaceType::GENERALIZED_BEZIER:
       {
@@ -608,7 +648,6 @@ int main() {
     default:
       ;
     }
-    surfaces[i]->eval(resolution).writeOBJ(s.str() + ".obj");
   }
   writeBoundaries(surfaces, "/tmp/boundaries.obj", 50);
 }

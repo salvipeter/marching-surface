@@ -1,6 +1,7 @@
 syntax: glob
 
 cell-test
+fixed-volume
 
 debug/*
 release/*
