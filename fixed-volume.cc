@@ -39,7 +39,8 @@ private:
   std::shared_ptr<Surface> generateSurfacePass1(const Index &index,
                                                 const PointVector &points,
                                                 const VectorVector &normals) const;
-  std::shared_ptr<Surface> generateSurfacePass2(const Index &index) const;
+  void generateSurfacePass2(const Index &index);
+  void generateSurfacePass3(const Index &index);
 
   Point3D origin;
   double length, step;
@@ -320,12 +321,11 @@ static void setTangentCP(std::shared_ptr<Surface> &s, int c, const Point3D &p) {
     s->setControlPoint(c-1, 1, 0, p);
 }
 
-std::shared_ptr<Surface>
-Volume::generateSurfacePass2(const Index &index) const {
-  auto surf = surfaces[cellIdx(index)];
+void
+Volume::generateSurfacePass2(const Index &index) {
+  auto &surf = surfaces[cellIdx(index)];
   if (!surf)
-    return surf;
-  int sides = surf->domain()->size();
+    return;
 
   // Modify tangent control points based on adjacent patches
   for (const auto &neighbor : neighbors(index)) {
@@ -334,7 +334,7 @@ Volume::generateSurfacePass2(const Index &index) const {
     auto [f, index2] = neighbor.value();
     if (f % 2 == 1)
       continue;                 // for symmetry reasons
-    auto surf2 = surfaces[cellIdx(index2)];
+    auto &surf2 = surfaces[cellIdx(index2)];
     if (!surf2)
       continue;
 
@@ -354,6 +354,14 @@ Volume::generateSurfacePass2(const Index &index) const {
       setTangentCP(surf2, c2, ccp + d);
     }
   }
+}
+
+void
+Volume::generateSurfacePass3(const Index &index) {
+  auto &surf = surfaces[cellIdx(index)];
+  if (!surf)
+    return;
+  int sides = surf->domain()->size();
 
   // Twist control points by the parallelogram rule
   Point3D p;
@@ -372,8 +380,6 @@ Volume::generateSurfacePass2(const Index &index) const {
   surf->setCentralControlPoint((p * 2 - q) / sides);
 
   surf->setupLoop();
-
-  return surf;
 }
 
 template<typename F, typename DF>
@@ -446,14 +452,19 @@ Volume::init(std::pair<F,DF> fdf) {
         surfaces[cellIdx(index)] = generateSurfacePass1(index, corners, normals);
       }
 
-  std::vector<std::shared_ptr<Surface>> tmp(std::pow(size, 3));
   for (size_t i = 0; i < size; ++i)
     for (size_t j = 0; j < size; ++j)
       for (size_t k = 0; k < size; ++k) {
         Index index = { i, j, k };
-        tmp[cellIdx(index)] = generateSurfacePass2(index);
+        generateSurfacePass2(index);
       }
-  surfaces = tmp;
+
+  for (size_t i = 0; i < size; ++i)
+    for (size_t j = 0; j < size; ++j)
+      for (size_t k = 0; k < size; ++k) {
+        Index index = { i, j, k };
+        generateSurfacePass3(index);
+      }
 }
 
 std::vector<std::shared_ptr<Surface>>
@@ -521,11 +532,11 @@ void writeBoundaries(const std::vector<std::shared_ptr<Surface>> &surfaces,
 }
 
 int main() {
-  bool generate_controlnet = false;
+  bool generate_controlnet = true;
   size_t resolution = 30;
   // Volume volume({ -3, -3, -3 }, 6.1, 8);
   // volume.init(normalized(gyroid()));
-  Volume volume({ -1.6, -1.6, -1.6 }, 3.0, 4);
+  Volume volume({ -1.6, -1.6, -1.6 }, 3.0, 3);
   volume.init(sphere({ 0, 0, 0 }, 1));
   // Volume volume({ 0, 0, 0 }, 1.0, 2);
   // volume.init(multiply(sphere({-0.1, 0, 0}, 0.5), sphere({1.2, 0.9, 0.1}, 0.6)));
