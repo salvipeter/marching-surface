@@ -28,15 +28,15 @@ private:
   Point3D position(const Index &i) const;
   size_t idx(const Index &i) const;
   size_t cellIdx(const Index &i) const;
-  std::array<std::optional<Index>,6> neighbors(const Index &i) const;
+  std::array<std::optional<std::pair<int,Volume::Index>>,6> neighbors(const Index &i) const;
   double value(const Index &i) const;
   double &value(const Index &i);
   Vector3D gradient(const Index &i) const;
   Vector3D &gradient(const Index &i);
   std::pair<Index, Index> edge(const Index &i, int e) const;
   static Index vertex(const Index &index, int i);
+  int findCurve(const Index &index, int face1, int face2) const;
   std::shared_ptr<Surface> generateSurfacePass1(const Index &index,
-                                                const std::vector<int> &crosses,
                                                 const PointVector &points,
                                                 const VectorVector &normals) const;
   std::shared_ptr<Surface> generateSurfacePass2(const Index &index) const;
@@ -46,6 +46,7 @@ private:
   size_t size;
   std::vector<double> values;
   std::vector<Vector3D> gradients;
+  std::vector<std::vector<int>> crosses;
   std::vector<std::shared_ptr<Surface>> surfaces;
 };
 
@@ -70,18 +71,20 @@ Volume::cellIdx(const Index &i) const {
   return i[0] * std::pow(size, 2) + i[1] * size + i[2];
 }
 
-std::array<std::optional<Volume::Index>,6>
+std::array<std::optional<std::pair<int,Volume::Index>>,6>
 Volume::neighbors(const Index &i) const {
-  std::array<std::optional<Index>,6> result;
+  std::array<std::optional<std::pair<int,Index>>,6> result;
   size_t index = 0;
   for (size_t j = 0; j < 3; ++j, index += 2) {
     if (i[j] > 0) {
-      result[index] = { i[j] };
-      result[index].value()[j]--;
+      result[index] = std::make_pair(index, Index());
+      std::copy(i.begin(), i.end(), result[index].value().second.begin());
+      result[index].value().second[j]--;
     }
     if (i[j] < size - 1) {
-      result[index+1] = { i[j] };
-      result[index+1].value()[j]++;
+      result[index+1] = std::make_pair(index + 1, Index());
+      std::copy(i.begin(), i.end(), result[index+1].value().second.begin());
+      result[index+1].value().second[j]++;
     }
   }
   return result;
@@ -133,15 +136,20 @@ Volume::edge(const Index &i, int edge_index) const {
   return { { a, b, c }, { d, e, f } };
 }
 
+namespace {
+
+    static std::array<int,6*4> faces = {
+      3,  7,  8, 11,
+      1,  5,  9, 10,
+      0,  4,  8,  9,
+      2,  6, 10, 11,
+      0,  1,  2,  3,
+      4,  5,  6,  7
+    };
+
+}
+
 static bool samePlane(int a, int b) {
-  static std::array<int,24> faces = {
-    0,  1,  2,  3,
-    4,  5,  6,  7,
-    1,  5,  9, 10,
-    3,  7,  8, 11,
-    0,  4,  8,  9,
-    2,  6, 10, 11
-  };
   size_t index = 0;
   for (size_t i = 0; i < 6; ++i) {
     size_t found = 0;
@@ -155,15 +163,7 @@ static bool samePlane(int a, int b) {
 }
 
 static bool edgeInFace(int edge, int face) {
-  static std::array<int,24> faces = {
-    0,  1,  2,  3,
-    4,  5,  6,  7,
-    1,  5,  9, 10,
-    3,  7,  8, 11,
-    0,  4,  8,  9,
-    2,  6, 10, 11
-  };
-  auto start = faces.begin() + face * 4, end = faces.begin() + (face + 1) * 4;
+  auto start = faces.begin() + face * 4, end = start + 4;
   return std::find(start, end, edge) != end;
 }
 
@@ -206,7 +206,6 @@ Volume::vertex(const Index &index, int i) {
 
 std::shared_ptr<Surface>
 Volume::generateSurfacePass1(const Index &index,
-                             const std::vector<int> &crosses,
                              const PointVector &points,
                              const VectorVector &normals) const {
   int sides = points.size();
@@ -217,11 +216,11 @@ Volume::generateSurfacePass1(const Index &index,
   for (int i = 0; i < sides; ++i)
     surf->setControlPoint(i, 0, 0, points[i]);
 
-  static const std::array<std::pair<int, int>,12> edges = {
+  static const std::array<std::pair<int,int>,12> edges = {
     {
       {0, 1}, {1, 2}, {2, 3}, {3, 0},
       {4, 5}, {5, 6}, {6, 7}, {7, 4},
-      {0, 4}, {1, 5}, {6, 2}, {7, 3}
+      {0, 4}, {1, 5}, {2, 6}, {3, 7}
     }
   };
 
@@ -230,11 +229,12 @@ Volume::generateSurfacePass1(const Index &index,
     // Find the 3 or 4 vertices defining this curve,
     // and mark the central vertex in the 3-vertex case
     int ip = (i + 1) % sides;
+    size_t ci = cellIdx(index);
     std::array<int,4> vertices = { 
-      edges[crosses[i]].first,
-      edges[crosses[i]].second,
-      edges[crosses[ip]].first,
-      edges[crosses[ip]].second
+      edges[crosses[ci][i]].first,
+      edges[crosses[ci][i]].second,
+      edges[crosses[ci][ip]].first,
+      edges[crosses[ci][ip]].second
     };
     std::array<bool,8> seen;
     seen.fill(false);
@@ -281,6 +281,45 @@ Volume::generateSurfacePass1(const Index &index,
   return surf;
 }
 
+int
+Volume::findCurve(const Index &index, int face1, int face2) const {
+  size_t ci = cellIdx(index);
+  int sides = surfaces[ci]->domain()->size();
+  for (int i = 0; i < sides; ++i) {
+    int ip = (i + 1) % sides;
+    if (edgeInFace(crosses[ci][i], face1) &&
+        edgeInFace(crosses[ci][ip], face2) &&
+        !edgeInFace(crosses[ci][ip], face1) &&
+        edgeInFace(crosses[ci][i], face2))
+      return i + 1;
+    if (edgeInFace(crosses[ci][i], face2) &&
+        edgeInFace(crosses[ci][ip], face1) &&
+        !edgeInFace(crosses[ci][i], face1) &&
+        edgeInFace(crosses[ci][ip], face2))
+      return -(i + 1);
+  }
+  return 0;
+}
+
+static Point3D extractCornerCP(const std::shared_ptr<Surface> &s, int c) {
+  if (c < 0)
+    return s->controlPoint(-c-1, 3, 0);
+  return s->controlPoint(c-1, 0, 0);
+}
+
+static Point3D extractTangentCP(const std::shared_ptr<Surface> &s, int c) {
+  if (c < 0)
+    return s->controlPoint(-c-1, 2, 0);
+  return s->controlPoint(c-1, 1, 0);
+}
+
+static void setTangentCP(std::shared_ptr<Surface> &s, int c, const Point3D &p) {
+  if (c < 0)
+    s->setControlPoint(-c-1, 2, 0, p);
+  else
+    s->setControlPoint(c-1, 1, 0, p);
+}
+
 std::shared_ptr<Surface>
 Volume::generateSurfacePass2(const Index &index) const {
   auto surf = surfaces[cellIdx(index)];
@@ -292,10 +331,28 @@ Volume::generateSurfacePass2(const Index &index) const {
   for (const auto &neighbor : neighbors(index)) {
     if (!neighbor.has_value())
       continue;
-    auto s = surfaces[cellIdx(neighbor.value())];
-    if (!s)
+    auto [f, index2] = neighbor.value();
+    if (f % 2 == 1)
+      continue;                 // for symmetry reasons
+    auto surf2 = surfaces[cellIdx(index2)];
+    if (!surf2)
       continue;
-    // TODO
+
+    int f2 = f + 1;
+    for (int other_face = 0; other_face < 6; ++other_face) {
+      if (other_face == f || other_face == f2)
+        continue;
+      int c = findCurve(index, f, other_face);
+      int c2 = findCurve(index2, f2, other_face);
+      if (c * c2 == 0)
+        continue;
+      auto ccp = extractCornerCP(surf, c);
+      auto tcp = extractTangentCP(surf, c);
+      auto tcp2 = extractTangentCP(surf2, c2);
+      auto d = (tcp2 - tcp) / 2;
+      setTangentCP(surf, c, ccp - d);
+      setTangentCP(surf2, c2, ccp + d);
+    }
   }
 
   // Twist control points by the parallelogram rule
@@ -333,18 +390,19 @@ Volume::init(std::pair<F,DF> fdf) {
         gradient(index) = fdf.second(p);
       }
 
+  crosses.clear(); crosses.resize(std::pow(size, 3));
   surfaces.clear(); surfaces.resize(std::pow(size, 3));
   for (size_t i = 0; i < size; ++i)
     for (size_t j = 0; j < size; ++j)
       for (size_t k = 0; k < size; ++k) {
         Index index = { i, j, k };
-        std::vector<int> crosses;
+        std::vector<int> tmp_crosses;
         for (int l = 0; l < 12; ++l) {
           auto e = edge(index, l);
           if (value(e.first) * value(e.second) < 0)
-            crosses.push_back(l);
+            tmp_crosses.push_back(l);
         }
-        int n_crosses = crosses.size();
+        int n_crosses = tmp_crosses.size();
         if (n_crosses == 0)
           continue;
 
@@ -353,16 +411,16 @@ Volume::init(std::pair<F,DF> fdf) {
         VectorVector normals;
         int cross = 0, last_cross = -1;
         do {
-          auto e = edge(index, crosses[cross]);
+          auto e = edge(index, tmp_crosses[cross]);
           Index i1 = e.first, i2 = e.second;
           double v1 = value(i1), v2 = value(i2);
           double alpha = std::abs(v1) / std::abs(v2 - v1);
-          sorted_crosses.push_back(crosses[cross]);
+          sorted_crosses.push_back(tmp_crosses[cross]);
           corners.push_back(position(i1) * (1 - alpha) + position(i2) * alpha);
           normals.push_back(gradient(i1) * (1 - alpha) + gradient(i2) * alpha);
           for (int j = 0; j < n_crosses; ++j)
             if (j != last_cross && j != cross &&
-                samePlane(crosses[cross], crosses[j])) {
+                samePlane(tmp_crosses[cross], tmp_crosses[j])) {
               last_cross = cross;
               cross = j;
               break;
@@ -374,7 +432,7 @@ Volume::init(std::pair<F,DF> fdf) {
           continue;
 
         // Reverse the loop if needed, such that positive is outside
-        static const std::array<int,12> left_faces = { 0, 0, 0, 0, 4, 2, 5, 3, 2, 2, 4, 5 };
+        static const std::array<int,12> left_faces = { 4, 4, 4, 4, 2, 1, 3, 0, 1, 1, 2, 3 };
         auto first_edge = edge(index, sorted_crosses[0]);
         bool negative = edgeInFace(sorted_crosses[1], left_faces[sorted_crosses[0]]);
         if ((negative && value(first_edge.first) > 0) ||
@@ -384,7 +442,8 @@ Volume::init(std::pair<F,DF> fdf) {
           std::reverse(normals.begin(), normals.end());
         }
 
-        surfaces[cellIdx(index)] = generateSurfacePass1(index, sorted_crosses, corners, normals);
+        crosses[cellIdx(index)] = sorted_crosses;
+        surfaces[cellIdx(index)] = generateSurfacePass1(index, corners, normals);
       }
 
   std::vector<std::shared_ptr<Surface>> tmp(std::pow(size, 3));
