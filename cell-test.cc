@@ -103,8 +103,6 @@ private:
                                                 const PointVector &points,
                                                 const VectorVector &normals) const;
 
-  void generateSurfacesPass1(SurfaceType type);
-  void generateSurfacesPass2(SurfaceType type);
 
   Point3D origin;
   double length;
@@ -307,6 +305,7 @@ Cell::generateGB(const std::vector<int> &crosses,
   int sides = points.size();
   auto surf = std::make_unique<SurfaceGeneralizedBezier>();
   surf->initNetwork(sides, 3);
+  surf->useSquaredRationalWeights(true);
 
   // Corner control points are already computed
   for (int i = 0; i < sides; ++i)
@@ -358,26 +357,33 @@ Cell::generateGB(const std::vector<int> &crosses,
     }
 
     // Scale the tangents and set the control points
-    double scaling = length / 3.0; // kutykurutty
+    double scaling = (p1 - p2).norm() / 3.0; // kutykurutty
     surf->setControlPoint(i, 1, 0, p1 + t1 * scaling);
     surf->setControlPoint(i, 2, 0, p2 + t2 * scaling);
   }
 
-  // Twist control points by the parallelogram rule
+  // Twist control points by direction blend
   Point3D p;
   for (int i = 0; i < sides; ++i) {
-    p = surf->controlPoint(i, 0, 1) + surf->controlPoint(i, 1, 0) - surf->controlPoint(i, 0, 0);
-    surf->setControlPoint(i, 1, 1, p);
+    Vector3D v0 = surf->controlPoint(i, 0, 1) - surf->controlPoint(i, 0, 0);
+    double s0 = v0.norm(); v0.normalize();
+    Vector3D v1 = surf->controlPoint(i, 3, 1) - surf->controlPoint(i, 3, 0);
+    double s1 = v1.norm(); v1.normalize();
+    Vector3D t0 = v0 * s0 + v1 * s0 + v0 * s1;
+    surf->setIndividualControlPoint(i, 1, 1, surf->controlPoint(i, 1, 0) + t0 / 3.0);
+    Vector3D t1 = v1 * s1 + v1 * s0 + v0 * s1;
+    surf->setIndividualControlPoint(i, 2, 1, surf->controlPoint(i, 2, 0) + t1 / 3.0);
   }
 
-  // Central control point is the mass center of the twist control points
+  // Central control point is computed from the mass center of the corner & twist control points
   p = Point3D(0, 0, 0);
   auto q = Point3D(0, 0, 0);
   for (int i = 0; i < sides; ++i) {
     p += surf->controlPoint(i, 1, 1);
+    p += surf->controlPoint(i, 2, 1);
     q += surf->controlPoint(i, 0, 0);
   }
-  surf->setCentralControlPoint((p * 2 - q) / sides);
+  surf->setCentralControlPoint((p - q) / sides);
 
   surf->setupLoop();
   return surf;
@@ -457,10 +463,10 @@ Cell::generateSPatch(const std::vector<int> &crosses,
 }
 
 void
-Cell::generateSurfacesPass1(SurfaceType type) {
+Cell::generateSurfaces(SurfaceType type) {
   if (children[0]) {
     for (int i = 0; i < 8; ++i)
-      children[i]->generateSurfacesPass1(type);
+      children[i]->generateSurfaces(type);
     return;
   }
 
@@ -524,19 +530,6 @@ Cell::generateSurfacesPass1(SurfaceType type) {
   default:
     assert(false && "Invalid patch type");
   }
-}
-
-void
-Cell::generateSurfacesPass2(SurfaceType type) {
-  if (type != SurfaceType::GENERALIZED_BEZIER)
-    return;
-  
-}
-
-void
-Cell::generateSurfaces(SurfaceType type) {
-  generateSurfacesPass1(type);
-  generateSurfacesPass2(type);
 }
 
 std::vector<std::shared_ptr<Surface>>
@@ -616,10 +609,10 @@ int main() {
   bool generate_controlnet = false;
   size_t resolution = 30;
   SurfaceType type = SurfaceType::GENERALIZED_BEZIER;
-  // Cell cell({ -3, -3, -3 }, 6.1);
-  // cell.init(normalized(gyroid()), 3, 3);
-  Cell cell({ -1.6, -1.6, -1.6 }, 3);
-  cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
+  Cell cell({ -3, -3, -3 }, 6.1);
+  cell.init(normalized(gyroid()), 2, 2);
+  // Cell cell({ -1.6, -1.6, -1.6 }, 3);
+  // cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
   // Cell cell({ 0, 0, 0 }, 1);
   // cell.init(multiply(sphere({-0.1, 0, 0}, 0.5), sphere({1.2, 0.9, 0.1}, 0.6)), 0, 0);
   cell.generateSurfaces(type);

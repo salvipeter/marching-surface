@@ -212,6 +212,7 @@ Volume::generateSurfacePass1(const Index &index,
   int sides = points.size();
   auto surf = std::make_shared<Surface>();
   surf->initNetwork(sides, 3);
+  surf->useSquaredRationalWeights(true);
 
   // Corner control points are already computed
   for (int i = 0; i < sides; ++i)
@@ -302,58 +303,70 @@ Volume::findCurve(const Index &index, int face1, int face2) const {
   return 0;
 }
 
-static Point3D extractCornerCP(const std::shared_ptr<Surface> &s, int c) {
-  if (c < 0)
-    return s->controlPoint(-c-1, 3, 0);
-  return s->controlPoint(c-1, 0, 0);
-}
+// static Point3D extractCornerCP(const std::shared_ptr<Surface> &s, int c) {
+//   if (c < 0)
+//     return s->controlPoint(-c-1, 3, 0);
+//   return s->controlPoint(c-1, 0, 0);
+// }
 
-static Point3D extractTangentCP(const std::shared_ptr<Surface> &s, int c) {
-  if (c < 0)
-    return s->controlPoint(-c-1, 2, 0);
-  return s->controlPoint(c-1, 1, 0);
-}
+// static Point3D extractTangentCP(const std::shared_ptr<Surface> &s, int c) {
+//   if (c < 0)
+//     return s->controlPoint(-c-1, 2, 0);
+//   return s->controlPoint(c-1, 1, 0);
+// }
 
-static void setTangentCP(std::shared_ptr<Surface> &s, int c, const Point3D &p) {
-  if (c < 0)
-    s->setControlPoint(-c-1, 2, 0, p);
-  else
-    s->setControlPoint(c-1, 1, 0, p);
-}
+// static void setTwistCP(std::shared_ptr<Surface> &s, int c, const Point3D &p) {
+//   if (c < 0)
+//     s->setControlPoint(-c-1, 2, 1, p);
+//   else
+//     s->setControlPoint(c-1, 1, 1, p);
+// }
 
 void
 Volume::generateSurfacePass2(const Index &index) {
-  auto &surf = surfaces[cellIdx(index)];
-  if (!surf)
-    return;
+  // auto &surf = surfaces[cellIdx(index)];
+  // if (!surf)
+  //   return;
 
-  // Modify tangent control points based on adjacent patches
-  for (const auto &neighbor : neighbors(index)) {
-    if (!neighbor.has_value())
-      continue;
-    auto [f, index2] = neighbor.value();
-    if (f % 2 == 1)
-      continue;                 // for symmetry reasons
-    auto &surf2 = surfaces[cellIdx(index2)];
-    if (!surf2)
-      continue;
+  // // Modify tangent control points based on adjacent patches
+  // for (const auto &neighbor : neighbors(index)) {
+  //   if (!neighbor.has_value())
+  //     continue;
+  //   auto [f, index2] = neighbor.value();
+  //   if (f % 2 == 1)
+  //     continue;                 // for symmetry reasons
+  //   auto &surf2 = surfaces[cellIdx(index2)];
+  //   if (!surf2)
+  //     continue;
 
-    int f2 = f + 1;
-    for (int other_face = 0; other_face < 6; ++other_face) {
-      if (other_face == f || other_face == f2)
-        continue;
-      int c = findCurve(index, f, other_face);
-      int c2 = findCurve(index2, f2, other_face);
-      if (c * c2 == 0)
-        continue;
-      auto ccp = extractCornerCP(surf, c);
-      auto tcp = extractTangentCP(surf, c);
-      auto tcp2 = extractTangentCP(surf2, c2);
-      auto d = (tcp2 - tcp) / 2;
-      setTangentCP(surf, c, ccp - d);
-      setTangentCP(surf2, c2, ccp + d);
-    }
-  }
+  //   int saved_curve = -1;
+  //   double s1, s2;
+  //   int f2 = f + 1;
+  //   for (int other_face = 0; other_face < 6; ++other_face) {
+  //     if (other_face == f || other_face == f2)
+  //       continue;
+  //     int c = findCurve(index, f, other_face);
+  //     int c2 = findCurve(index2, f2, other_face);
+  //     if (c * c2 == 0)
+  //       continue;
+  //     auto ccp = extractCornerCP(surf, c);
+  //     auto tcp = extractTangentCP(surf, c);
+  //     auto tcp2 = extractTangentCP(surf2, c2);
+  //     double scaling = (tcp2 - ccp).norm() / (tcp - ccp).norm();
+  //     if (saved_curve == -1) {
+  //       saved_curve = c;
+  //       s1 = scaling;
+  //     } else {
+  //       s2 = scaling;
+  //       auto new_cp = ccp + (tcp - ccp) * scaling;
+  //       setTangentCP(surf, c, new_cp);
+  //       ccp = extractCornerCP(surf, saved_curve);
+  //       tcp = extractTangentCP(surf, saved_curve);
+  //       new_cp = ccp + (tcp - ccp) * scaling;
+  //       setTangentCP(surf, saved_curve, new_cp);
+  //     }
+  //   }
+  // }
 }
 
 void
@@ -363,11 +376,17 @@ Volume::generateSurfacePass3(const Index &index) {
     return;
   int sides = surf->domain()->size();
 
-  // Twist control points by the parallelogram rule
+  // Twist control points by direction blend
   Point3D p;
   for (int i = 0; i < sides; ++i) {
-    p = surf->controlPoint(i, 0, 1) + surf->controlPoint(i, 1, 0) - surf->controlPoint(i, 0, 0);
-    surf->setControlPoint(i, 1, 1, p);
+    Vector3D v0 = surf->controlPoint(i, 0, 1) - surf->controlPoint(i, 0, 0);
+    double s0 = v0.norm(); v0.normalize();
+    Vector3D v1 = surf->controlPoint(i, 3, 1) - surf->controlPoint(i, 3, 0);
+    double s1 = v1.norm(); v1.normalize();
+    Vector3D t0 = v0 * s0 + v1 * s0 + v0 * s1;
+    surf->setIndividualControlPoint(i, 1, 1, surf->controlPoint(i, 1, 0) + t0 / 3.0);
+    Vector3D t1 = v1 * s1 + v1 * s0 + v0 * s1;
+    surf->setIndividualControlPoint(i, 2, 1, surf->controlPoint(i, 2, 0) + t1 / 3.0);
   }
 
   // Central control point is computed from the mass center of the corner & twist control points
@@ -375,9 +394,10 @@ Volume::generateSurfacePass3(const Index &index) {
   auto q = Point3D(0, 0, 0);
   for (int i = 0; i < sides; ++i) {
     p += surf->controlPoint(i, 1, 1);
+    p += surf->controlPoint(i, 2, 1);
     q += surf->controlPoint(i, 0, 0);
   }
-  surf->setCentralControlPoint((p * 2 - q) / sides);
+  surf->setCentralControlPoint((p - q) / sides);
 
   surf->setupLoop();
 }
