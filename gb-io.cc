@@ -107,3 +107,29 @@ void writeBezierControlPoints(const Transfinite::SurfaceGeneralizedBezier &surf,
 
   f.close();
 }
+
+void writeIncompatibleBezierControlPoints(const Transfinite::SurfaceGeneralizedBezier &surf,
+                                          const std::string &filename) {
+  size_t n = surf.domain()->vertices().size();
+  size_t d = surf.degree();
+  size_t l = surf.layers();
+  std::ofstream f(filename);
+  Point3D p = surf.centralControlPoint();
+  f << "v " << p[0] << " " << p[1] << " " << p[2] << std::endl;
+  for (size_t i = 0; i < n; ++i)
+    for (size_t j = 0; j <= d; ++j)
+      for (size_t k = 0; k < l; ++k) {
+        Point3D p = surf.controlPoint(i, j, k);
+        f << "v " << p[0] << " " << p[1] << " " << p[2] << std::endl;
+      }
+  f << "p " << 1 << std::endl;
+  for (size_t i = 0; i < n; ++i)
+    for (size_t j = 0; j <= d; ++j)
+      for (size_t k = 0; k < l; ++k) {
+        size_t base = i * (d + 1) * l + j * l + k;
+        if (k > 0)
+          f << "l " << base + 1 << " " << base + 2 << std::endl;
+        if (j > 0)
+          f << "l " << base - l + 2 << " " << base + 2 << std::endl;
+      }
+}

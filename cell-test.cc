@@ -636,7 +636,7 @@ int main() {
       {
         auto *gb = dynamic_cast<SurfaceGeneralizedBezier*>(surfaces[i].get());
         // saveBezier(*gb, s.str() + ".gbp");
-        writeBezierControlPoints(*gb, s.str() + "-cp.obj");
+        writeIncompatibleBezierControlPoints(*gb, s.str() + "-cp.obj");
       }
       break;
     case SurfaceType::SUPERD:
