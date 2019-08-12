@@ -362,28 +362,35 @@ Cell::generateGB(const std::vector<int> &crosses,
     surf->setControlPoint(i, 2, 0, p2 + t2 * scaling);
   }
 
+  // Compute mass center of the corner vertices
+  Point3D corner_mean(0, 0, 0);
+  for (int i = 0; i < sides; ++i)
+    corner_mean += surf->controlPoint(i, 0, 0);
+  corner_mean /= sides;
+  
   // Twist control points by direction blend
   Point3D p;
   for (int i = 0; i < sides; ++i) {
+    // For a good guess of the central scaling weight,
+    // compute the distance of the edge midpoint to the corner mean
+    Point3D midpoint = (surf->controlPoint(i, 0, 0) + surf->controlPoint(i, 1, 0) * 3 +
+                        surf->controlPoint(i, 2, 0) * 3 + surf->controlPoint(i, 3, 0)) / 8.0;
+    double s05 = (midpoint - corner_mean).norm() / 2.0;
     Vector3D v0 = surf->controlPoint(i, 0, 1) - surf->controlPoint(i, 0, 0);
     double s0 = v0.norm(); v0.normalize();
     Vector3D v1 = surf->controlPoint(i, 3, 1) - surf->controlPoint(i, 3, 0);
     double s1 = v1.norm(); v1.normalize();
-    Vector3D t0 = v0 * s0 + v1 * s0 + v0 * s1;
+    Vector3D t0 = v1 * s0 + v0 * (4.0 * s05 - s0 - s1);
     surf->setIndividualControlPoint(i, 1, 1, surf->controlPoint(i, 1, 0) + t0 / 3.0);
-    Vector3D t1 = v1 * s1 + v1 * s0 + v0 * s1;
+    Vector3D t1 = v0 * s1 + v1 * (4.0 * s05 - s0 - s1);
     surf->setIndividualControlPoint(i, 2, 1, surf->controlPoint(i, 2, 0) + t1 / 3.0);
   }
 
   // Central control point is computed from the mass center of the corner & twist control points
   p = Point3D(0, 0, 0);
-  auto q = Point3D(0, 0, 0);
-  for (int i = 0; i < sides; ++i) {
-    p += surf->controlPoint(i, 1, 1);
-    p += surf->controlPoint(i, 2, 1);
-    q += surf->controlPoint(i, 0, 0);
-  }
-  surf->setCentralControlPoint((p - q) / sides);
+  for (int i = 0; i < sides; ++i)
+    p += surf->controlPoint(i, 1, 1) + surf->controlPoint(i, 2, 1);
+  surf->setCentralControlPoint(p / sides - corner_mean);
 
   surf->setupLoop();
   return surf;
@@ -606,7 +613,7 @@ void writeBoundaries(const std::vector<std::shared_ptr<Surface>> &surfaces,
 }
 
 int main() {
-  bool generate_controlnet = false;
+  bool generate_controlnet = true;
   size_t resolution = 30;
   SurfaceType type = SurfaceType::GENERALIZED_BEZIER;
   Cell cell({ -3, -3, -3 }, 6.1);
