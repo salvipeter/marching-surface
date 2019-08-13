@@ -469,6 +469,17 @@ Cell::generateSPatch(const std::vector<int> &crosses,
   return surf;
 }
 
+Point3D intersectLines(const Point3D &ap, const Vector3D &ad,
+                       const Point3D &bp, const Vector3D &bd) {
+  // always returns a point on the (ap, ad) line
+  double a = ad * ad, b = ad * bd, c = bd * bd;
+  double d = ad * (ap - bp), e = bd * (ap - bp);
+  if (a * c - b * b < 1.0e-7)
+    return ap;
+  double s = (b * e - c * d) / (a * c - b * b);
+  return ap + ad * s;
+}
+
 void
 Cell::generateSurfaces(SurfaceType type) {
   if (children[0]) {
@@ -493,12 +504,26 @@ Cell::generateSurfaces(SurfaceType type) {
   VectorVector normals;
   int cross = 0, last_cross = -1;
   do {
-    int i1 = edges[crosses[cross]].first, i2 = edges[crosses[cross]].second;
-    double v1 = value(i1), v2 = value(i2);
-    double alpha = std::abs(v1) / std::abs(v2 - v1);
     sorted_crosses.push_back(crosses[cross]);
-    corners.push_back(vertex(i1) * (1 - alpha) + vertex(i2) * alpha);
-    normals.push_back(gradient(i1) * (1 - alpha) + gradient(i2) * alpha);
+    int i1 = edges[crosses[cross]].first, i2 = edges[crosses[cross]].second;
+    auto p1 = vertex(i1), p2 = vertex(i2);
+    auto v1 = value(i1), v2 = value(i2);
+    auto g1 = gradient(i1), g2 = gradient(i2);
+
+    // Simple linear interpolation
+    double alpha = std::abs(v1) / std::abs(v2 - v1);
+    auto guess1 = p1 * (1 - alpha) + p2 * alpha;
+
+    // Better corner position approximation using gradients
+    auto l1 = p1 - g1 * v1, l2 = p2 - g2 * v2;
+    auto guess2 = intersectLines(p1, p2 - p1, l1, l2 - l1);
+
+    auto final_guess = (guess1 + guess2) / 2.0;
+    alpha = (final_guess - p1).norm() / (p2 - p1).norm();
+
+    corners.push_back(final_guess);
+    normals.push_back(g1 * (1 - alpha) + g2 * alpha);
+
     for (int j = 0; j < n_crosses; ++j)
       if (j != last_cross && j != cross && samePlane(edges[crosses[cross]], edges[crosses[j]])) {
         last_cross = cross;
@@ -613,13 +638,13 @@ void writeBoundaries(const std::vector<std::shared_ptr<Surface>> &surfaces,
 }
 
 int main() {
-  bool generate_controlnet = true;
+  bool generate_controlnet = false;
   size_t resolution = 30;
   SurfaceType type = SurfaceType::GENERALIZED_BEZIER;
-  Cell cell({ -3, -3, -3 }, 6.1);
-  cell.init(normalized(gyroid()), 2, 2);
-  // Cell cell({ -1.6, -1.6, -1.6 }, 3);
-  // cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
+  // Cell cell({ -3, -3, -3 }, 6.1);
+  // cell.init(normalized(gyroid()), 2, 2);
+  Cell cell({ -1.6, -1.6, -1.6 }, 3);
+  cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
   // Cell cell({ 0, 0, 0 }, 1);
   // cell.init(multiply(sphere({-0.1, 0, 0}, 0.5), sphere({1.2, 0.9, 0.1}, 0.6)), 0, 0);
   cell.generateSurfaces(type);
