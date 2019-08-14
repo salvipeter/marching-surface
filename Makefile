@@ -6,8 +6,8 @@ INCLUDES=-I/usr/include/eigen3 -I$(TRANSFINITE)/src/geom -I$(TRANSFINITE)/src/tr
 CXXFLAGS=-Wall -g -pedantic -std=c++17 $(INCLUDES)
 LIBS=-L$(TRANSFINITE)/release/geom -L$(TRANSFINITE)/release/transfinite -lgeom -ltransfinite
 
-cell-test: cell-test.o gb-io.o superd-io.o
+cell-test: cell-test.o gb-io.o superd-io.o class-a-bezier.o
 	g++ -o $@ $^ $(LIBS)
 
-fixed-volume: fixed-volume.o gb-io.o
+fixed-volume: fixed-volume.o gb-io.o class-a-bezier.o
 	g++ -o $@ $^ $(LIBS)

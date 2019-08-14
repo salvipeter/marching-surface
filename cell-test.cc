@@ -14,6 +14,7 @@
 #include <surface-spatch.hh>
 #include <surface-superd.hh>
 
+#include "class-a-bezier.hh"
 #include "gb-io.hh"
 #include "superd-io.hh"
 
@@ -340,7 +341,7 @@ Cell::generateGB(const std::vector<int> &crosses,
     auto p1 = points[i], p2 = points[ip];
     auto n1 = normals[i], n2 = normals[ip];
     auto pn = planeNormal(vertices[0], vertices[1], vertices[2]);
-    auto t1 = n1.normalize() ^ pn, t2 = n2.normalize() ^ pn;
+    auto t1 = (n1 ^ pn).normalize(), t2 = (n2 ^ pn).normalize();
 
     // Reverse the sign when appropriate:
     if (central_vertex != -1) {
@@ -356,10 +357,17 @@ Cell::generateGB(const std::vector<int> &crosses,
         t2 *= -1;
     }
 
-    // Scale the tangents and set the control points
-    double scaling = (p1 - p2).norm() / 3.0; // kutykurutty
-    surf->setControlPoint(i, 1, 0, p1 + t1 * scaling);
-    surf->setControlPoint(i, 2, 0, p2 + t2 * scaling);
+    // Class A Bezier curves as boundaries
+    auto pv = fitCubicClassABezier(p1, t1, p2, t2);
+    if (!pv.empty()) {
+      surf->setControlPoint(i, 1, 0, pv[1]);
+      surf->setControlPoint(i, 2, 0, pv[2]);
+    } else {
+      // Scale the tangents and set the control points
+      double scaling = (p1 - p2).norm() / 3.0; // kutykurutty
+      surf->setControlPoint(i, 1, 0, p1 + t1 * scaling);
+      surf->setControlPoint(i, 2, 0, p2 + t2 * scaling);
+    }
   }
 
   // Compute mass center of the corner vertices
@@ -641,10 +649,10 @@ int main() {
   bool generate_controlnet = false;
   size_t resolution = 30;
   SurfaceType type = SurfaceType::GENERALIZED_BEZIER;
-  // Cell cell({ -3, -3, -3 }, 6.1);
-  // cell.init(normalized(gyroid()), 2, 2);
-  Cell cell({ -1.6, -1.6, -1.6 }, 3);
-  cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
+  Cell cell({ -3, -3, -3 }, 6.1);
+  cell.init(normalized(gyroid()), 2, 2);
+  // Cell cell({ -1.6, -1.6, -1.6 }, 3);
+  // cell.init(sphere({ 0, 0, 0 }, 1), 2, 2);
   // Cell cell({ 0, 0, 0 }, 1);
   // cell.init(multiply(sphere({-0.1, 0, 0}, 0.5), sphere({1.2, 0.9, 0.1}, 0.6)), 0, 0);
   cell.generateSurfaces(type);
