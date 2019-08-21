@@ -4,16 +4,16 @@ using LinearAlgebra
 
 # Global settings
 
-show_curve = true
 filename = "/tmp/test2d.eps"
 
 ### SETUP_BEGIN - do not modify this line
 corner = [-1.4, -1.55]
-length = 3
+bbox_edge = 3.0
 cells = 3
 curve = p -> sqrt(p[1]^2 + p[2]^2) - 1
 gradient = p -> normalize(p)
 real_curve = [[cos(x), sin(x)] for x in 0:0.01:2pi]
+show_types = [:real :linear :parabolic]
 ### SETUP_END - do not modify this line
 
 # Global constants
@@ -23,6 +23,9 @@ fullheight = fullwidth * sqrt(2)
 margin = 0.25 * 72
 width = fullwidth - 2 * margin
 height = fullheight - 2 * margin
+colors = [ 1 0 0 1 1 0 0
+           0 1 0 1 0 1 0
+           0 0 1 0 1 1 0 ]
 
 const Point = Vector{Float64}
 
@@ -35,7 +38,7 @@ function print_header(f)
 end
 
 function convert(p)
-    q = (p - corner) / length * width .+ margin
+    q = (p - corner) / bbox_edge * width .+ margin
     q[2] = fullheight - q[2]
     q
 end
@@ -69,13 +72,6 @@ function print_segments(f, segments)
     println(f, "stroke")
 end
 
-function print_curve(f)
-    !show_curve && return
-    println(f, "1 0 0 setrgbcolor")
-    print_segments(f, real_curve)
-    println(f, "0 0 0 setrgbcolor")
-end
-
 function find_intersection(p1, p2)
     v1 = curve(p1)
     v2 = curve(p2)
@@ -84,21 +80,45 @@ function find_intersection(p1, p2)
     p1 * (1 - x) + p2 * x
 end
 
-function cell_curve(i, j)
-    p = corner + [i - 1, j - 1] / cells * length
-    d = length / cells
-    points = [p, p + [d, 0], p + [0, d], p + [d, d]]
-    ints = [find_intersection(points[1], points[2]),
-            find_intersection(points[1], points[3]),
-            find_intersection(points[2], points[4]),
-            find_intersection(points[3], points[4])]
-    filter(x -> x != nothing, ints)
+function find_intersection2(p1, p2)
+    v1 = curve(p1)
+    v2 = curve(p2)
+    v1 * v2 > 0 && return nothing
+    g1 = gradient(p1)
+    g2 = gradient(p2)
+    f1 = p1 - g1 * v1
+    f2 = p2 - g2 * v2
+    # lp = liming_parabola(f1, g1, f2, g2)
+    (p1 + p2) / 2               # TODO
 end
 
-function print_marching(f)
-    println(f, "0 0 1 setrgbcolor")
+function print_curve(f, type)
+    type === :real && return print_segments(f, real_curve)
     for i in 1:cells, j in 1:cells
-        print_segments(f, cell_curve(i, j))
+        p = corner + [i - 1, j - 1] / cells * bbox_edge
+        d = bbox_edge / cells
+        points = [p, p + [d, 0], p + [0, d], p + [d, d]]
+        if type === :linear
+            ints = [find_intersection(points[1], points[2]),
+                    find_intersection(points[1], points[3]),
+                    find_intersection(points[2], points[4]),
+                    find_intersection(points[3], points[4])]
+            print_segments(f, filter(x -> x != nothing, ints))
+        elseif type == :parabolic
+            ints = [find_intersection2(points[1], points[2]),
+                    find_intersection2(points[1], points[3]),
+                    find_intersection2(points[2], points[4]),
+                    find_intersection2(points[3], points[4])]
+            print_segments(f, filter(x -> x != nothing, ints))
+        end
+    end
+end
+
+function print_curves(f)
+    for i in 1:length(show_types)
+        c = colors[i,:]
+        println(f, "$(c[1]) $(c[2]) $(c[3]) setrgbcolor")
+        print_curve(f, show_types[i])
     end
     println(f, "0 0 0 setrgbcolor")
 end
@@ -128,8 +148,7 @@ function generate()
     open(filename, "w") do f
         print_header(f)
         print_grid(f)
-        print_curve(f)
-        print_marching(f)
+        print_curves(f)
         print_settings(f)
         print_footer(f)
     end
