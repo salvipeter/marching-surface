@@ -9,7 +9,7 @@ filename = "/tmp/test2d.eps"
 ### SETUP_BEGIN - do not modify this line
 corner = [-1.4, -1.55]
 bbox_edge = 3.0
-cells = 3
+cells = 5
 curve = p -> sqrt(p[1]^2 + p[2]^2) - 1
 gradient = p -> normalize(p)
 real_curve = [[cos(x), sin(x)] for x in 0:0.01:2pi]
@@ -80,6 +80,59 @@ function find_intersection(p1, p2)
     p1 * (1 - x) + p2 * x
 end
 
+function solve_quadratic(a, b, c)
+    eps = 1.0e-8
+    if abs(a) < eps
+        if abs(b) < eps
+            @assert abs(c) < eps "No solutions"
+            return 0
+        end
+        return -c / b
+    end
+    D = b^2 - 4*a*c
+#    @assert D > -eps "No real solutions ($D)"
+    D = D < 0 ? 0 : sqrt(D)
+    ((-b + D) / 2a, (-b - D) / 2a)
+end
+
+function liming_parabola(f1, g1, f2, g2)
+    # Compute correct lambda for parabola
+    # Assuming equation S1 S2 lambda + S3^2 = 0
+    a = [g1[1] * g2[1], (f1[2] - f2[2])^2]
+    c = [g1[2] * g2[2], (f2[1] - f1[1])^2]
+    b = [g1[1] * g2[2] + g1[2] * g2[1], (f1[2] - f2[2]) * (f2[1] - f1[1])]
+    l1, l2 = solve_quadratic(b[1]^2-4*a[1]*c[1],
+                             2*b[1]*b[2]-4*(a[1]*c[2]+a[2]*c[1]),
+                             a[2]*c[2]-4*b[2]^2)
+    lambda = l1 < 0 || l1 > 1 ? l2 : l1
+    @assert lambda >= 0 && lambda <= 1 "Invalid lambda value"
+    S1 = [g1[1], g1[2], -f1[1]*g1[1]-f1[2]*g1[2]]
+    S2 = [g2[1], g2[2], -f2[1]*g2[1]-f2[2]*g2[2]]
+    S3 = [f1[2]-f2[2], f2[1]-f1[1], f1[1]*(f2[2]-f1[2])+f1[2]*(f1[1]-f2[1])]
+    S1S2 = [S1[1]*S2[1], S1[1]*S2[2]+S2[1]*S1[2], S1[2]*S2[2],
+            S1[1]*S2[3]+S1[3]*S2[1], S1[2]*S2[3]+S1[3]*S2[2], S1[3]*S2[3]]
+    S3S3 = [S3[1]^2, 2*S3[1]*S3[2], S3[2]^2, 2*S3[1]*S3[3], 2*S3[2]*S3[3], S3[3]^2]
+    S1S2 * lambda + S3S3
+end
+
+function intersect_implicit(S, p1, p2)
+    if p1[1] == p2[1]
+        x = p1[1]
+        y1, y2 = solve_quadratic(S[3], S[2] * x + S[5], S[1] * x^2 + S[4] * x + S[6])
+        lo, hi = min(p1[2], p2[2]), max(p1[2], p2[2])
+        y = y1 < lo || y1 > hi ? y2 : y1
+        @assert y >= lo && y <= hi "Invalid intersection point"
+        [x, y]
+    else
+        y = p1[2]
+        x1, x2 = solve_quadratic(S[1], S[2] * y + S[4], S[3] * y^2 + S[5] * y + S[6])
+        lo, hi = min(p1[1], p2[1]), max(p1[1], p2[1])
+        x = x1 < lo || x1 > hi ? x2 : x1
+        @assert x >= lo && x <= hi "Invalid intersection point"
+        [x, y]
+    end
+end
+
 function find_intersection2(p1, p2)
     v1 = curve(p1)
     v2 = curve(p2)
@@ -88,8 +141,8 @@ function find_intersection2(p1, p2)
     g2 = gradient(p2)
     f1 = p1 - g1 * v1
     f2 = p2 - g2 * v2
-    # lp = liming_parabola(f1, g1, f2, g2)
-    (p1 + p2) / 2               # TODO
+    lp = liming_parabola(f1, g1, f2, g2)
+    intersect_implicit(lp, p1, p2)
 end
 
 function print_curve(f, type)
