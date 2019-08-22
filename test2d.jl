@@ -5,15 +5,16 @@ using LinearAlgebra
 # Global settings
 
 filename = "/tmp/test2d.eps"
+sampling_res = 100
 
 ### SETUP_BEGIN - do not modify this line
 corner = [-1.4, -1.55]
 bbox_edge = 3.0
-cells = 5
+cells = 3
 curve = p -> sqrt(p[1]^2 + p[2]^2) - 1
 gradient = p -> normalize(p)
 real_curve = [[cos(x), sin(x)] for x in 0:0.01:2pi]
-show_types = [:real :linear :parabolic]
+show_types = [:real :nolinear :liming_cubic]
 ### SETUP_END - do not modify this line
 
 # Global constants
@@ -145,24 +146,62 @@ function find_intersection2(p1, p2)
     intersect_implicit(lp, p1, p2)
 end
 
-function print_curve(f, type)
-    type === :real && return print_segments(f, real_curve)
+function guess_normal(p, p1, p2)
+    p === nothing && return nothing
+    x = norm(p - p1) / norm(p2 - p1)
+    gradient(p1) * (1 - x) + gradient(p2) * x
+end
+
+function sample_bezier(cp, resolution)
+    result = []
+    n = length(cp) - 1
+    for u in range(0, stop=1, length=resolution)
+        tmp = copy(cp)
+        for k in 1:n, i in 1:n-k+1
+            tmp[i] = tmp[i] * (1 - u) + tmp[i+1] * u
+        end
+        push!(result, tmp[1])
+    end
+    result
+end
+
+function print_curve(f, approx_type)
+    approx_type === :real && return print_segments(f, real_curve)
     for i in 1:cells, j in 1:cells
         p = corner + [i - 1, j - 1] / cells * bbox_edge
         d = bbox_edge / cells
         points = [p, p + [d, 0], p + [0, d], p + [d, d]]
-        if type === :linear
+        if approx_type === :linear
             ints = [find_intersection(points[1], points[2]),
                     find_intersection(points[1], points[3]),
                     find_intersection(points[2], points[4]),
                     find_intersection(points[3], points[4])]
             print_segments(f, filter(x -> x != nothing, ints))
-        elseif type == :parabolic
+        elseif approx_type === :liming_cubic
             ints = [find_intersection2(points[1], points[2]),
                     find_intersection2(points[1], points[3]),
                     find_intersection2(points[2], points[4]),
                     find_intersection2(points[3], points[4])]
-            print_segments(f, filter(x -> x != nothing, ints))
+            normals = [guess_normal(ints[1], points[1], points[2]),
+                       guess_normal(ints[2], points[1], points[3]),
+                       guess_normal(ints[3], points[2], points[4]),
+                       guess_normal(ints[4], points[3], points[4])]
+            ints = filter(x -> x != nothing, ints)
+            normals = filter(x -> x != nothing, normals)
+            length(ints) != 2 && continue # TODO
+            p1, n1 = ints[1], normals[1]
+            p2, n2 = ints[2], normals[2]
+            t1, t2 = normalize([-n1[2], n1[1]]), normalize([-n2[2], n2[1]])
+            if dot(t1, p2 - p1) < 0
+                t1 *= -1
+            end
+            if dot(t2, p1 - p2) < 0
+                t2 *= -1
+            end
+            d = norm(p2 - p1) / 3
+            # Control polygon
+            # print_segments(f, [p1, p1 + t1 * d, p2 + t2 * d, p2])
+            print_segments(f, sample_bezier([p1, p1 + t1 * d, p2 + t2 * d, p2], sampling_res))
         end
     end
 end
