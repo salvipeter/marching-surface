@@ -1,5 +1,4 @@
 module Marching2D
-
 using LinearAlgebra
 
 # Global settings
@@ -10,11 +9,12 @@ sampling_res = 100
 ### SETUP_BEGIN - do not modify this line
 corner = [-1.4, -1.55]
 bbox_edge = 3.0
-cells = 3
-curve = p -> sqrt(p[1]^2 + p[2]^2) - 1
-gradient = p -> normalize(p)
-real_curve = [[cos(x), sin(x)] for x in 0:0.01:2pi]
-show_types = [:noreal :nolinear :liming_cubic]
+cells = 4
+ellipse = [1,1] #[1.2, 0.8]
+curve = p -> norm([p[1]/ellipse[1], p[2]/ellipse[2]]) - 1
+gradient = p -> normalize([p[1]/ellipse[1], p[2]/ellipse[2]])
+real_curve = [[ellipse[1]*cos(x), ellipse[2]*sin(x)] for x in 0:0.01:2pi]
+show_types = [:real :linear :liming_cubic]
 ### SETUP_END - do not modify this line
 
 # Global constants
@@ -27,11 +27,13 @@ height = fullheight - 2 * margin
 colors = [ 1 0 0 1 1 0 0
            0 1 0 1 0 1 0
            0 0 1 0 1 1 0 ]
+point_radius = 3
 
 # Global variables
 
 global accuracy
 check_accuracy = false
+global file_handle              # for debug
 
 
 # Main code
@@ -81,6 +83,11 @@ function print_segments(f, segments)
     println(f, "stroke")
 end
 
+function print_point(f, p)
+    p = convert(p)
+    println(f, "$(p[1]) $(p[2]) $point_radius 0 360 arc fill")
+end
+
 function find_intersection(p1, p2)
     v1 = curve(p1)
     v2 = curve(p2)
@@ -99,29 +106,41 @@ function solve_quadratic(a, b, c)
         return -c / b
     end
     D = b^2 - 4*a*c
-#    @assert D > -eps "No real solutions ($D)"
+    if D < -eps
+        @warn "D = $D, using 0 discriminant"
+    end
     D = D < 0 ? 0 : sqrt(D)
     ((-b + D) / 2a, (-b - D) / 2a)
 end
 
 function liming_parabola(f1, g1, f2, g2)
-    # Compute correct lambda for parabola
-    # Assuming equation S1 S2 lambda + S3^2 = 0
-    a = [g1[1] * g2[1], (f1[2] - f2[2])^2]
-    c = [g1[2] * g2[2], (f2[1] - f1[1])^2]
-    b = [g1[1] * g2[2] + g1[2] * g2[1], (f1[2] - f2[2]) * (f2[1] - f1[1])]
-    l1, l2 = solve_quadratic(b[1]^2-4*a[1]*c[1],
-                             2*b[1]*b[2]-4*(a[1]*c[2]+a[2]*c[1]),
-                             a[2]*c[2]-4*b[2]^2)
-    lambda = l1 < 0 || l1 > 1 ? l2 : l1
-    @assert lambda >= 0 && lambda <= 1 "Invalid lambda value"
-    S1 = [g1[1], g1[2], -f1[1]*g1[1]-f1[2]*g1[2]]
-    S2 = [g2[1], g2[2], -f2[1]*g2[1]-f2[2]*g2[2]]
-    S3 = [f1[2]-f2[2], f2[1]-f1[1], f1[1]*(f2[2]-f1[2])+f1[2]*(f1[1]-f2[1])]
-    S1S2 = [S1[1]*S2[1], S1[1]*S2[2]+S2[1]*S1[2], S1[2]*S2[2],
+    # Assuming equation S3^2 - lambda S1 S2 = 0
+    # Using vectors as polynomials
+    # - linear: [x, y, 1]
+    # - quadratic: [x^2, xy, y^2, x, y, 1]
+    d = f2 - f1
+    n = normalize([-d[2], d[1]])
+    if dot(g1, g2) < 0
+        @warn "Opposing gradients"
+    end
+    if dot(n, g1) < 0
+        n *= -1
+    end
+    S1 = [g1[1], g1[2], -dot(f1, g1)]
+    S2 = [g2[1], g2[2], -dot(f2, g2)]
+    S3 = [n[1], n[2], -dot(f1, n)]
+    S1S2 = [S1[1]*S2[1], S1[1]*S2[2]+S1[2]*S2[1], S1[2]*S2[2],
             S1[1]*S2[3]+S1[3]*S2[1], S1[2]*S2[3]+S1[3]*S2[2], S1[3]*S2[3]]
     S3S3 = [S3[1]^2, 2*S3[1]*S3[2], S3[2]^2, 2*S3[1]*S3[3], 2*S3[2]*S3[3], S3[3]^2]
-    S1S2 * lambda + S3S3
+
+    # Compute correct lambda for parabola, i.e., b^2 - 4ac = 0
+    # This is a quadratic equation in lambda, but the constant term vanishes
+    a = [S1S2[1], S3S3[1]]
+    c = [S1S2[3], S3S3[3]]
+    b = [S1S2[2], S3S3[2]]
+    lambda = (2*b[1]*b[2]-4*(a[1]*c[2]+a[2]*c[1])) / (b[1]^2-4*a[1]*c[1])
+
+    S3S3 - lambda * S1S2
 end
 
 function intersect_implicit(S, p1, p2)
@@ -130,14 +149,19 @@ function intersect_implicit(S, p1, p2)
         y1, y2 = solve_quadratic(S[3], S[2] * x + S[5], S[1] * x^2 + S[4] * x + S[6])
         lo, hi = min(p1[2], p2[2]), max(p1[2], p2[2])
         y = y1 < lo || y1 > hi ? y2 : y1
-        @assert y >= lo && y <= hi "Invalid intersection point"
+        if y < lo || y > hi
+            @warn "$y is not in [$lo, $hi]"
+        end
         [x, y]
     else
+        @assert p1[2] == p2[2] "The points should share exactly one coordinate"
         y = p1[2]
         x1, x2 = solve_quadratic(S[1], S[2] * y + S[4], S[3] * y^2 + S[5] * y + S[6])
         lo, hi = min(p1[1], p2[1]), max(p1[1], p2[1])
         x = x1 < lo || x1 > hi ? x2 : x1
-        @assert x >= lo && x <= hi "Invalid intersection point"
+        if x < lo || x > hi
+            @warn "$x is not in [$lo, $hi]"
+        end
         [x, y]
     end
 end
@@ -150,6 +174,16 @@ function find_intersection2(p1, p2)
     g2 = gradient(p2)
     f1 = p1 - g1 * v1
     f2 = p2 - g2 * v2
+
+    # DEBUG: print footpoints
+    print_point(file_handle, f1)
+    print_point(file_handle, f2)
+    # t1 = [-g1[2], g1[1]]
+    # t2 = [-g2[2], g2[1]]
+    # d = norm(f1 - f2)
+    # print_segments(file_handle, [f1 - t1 * d, f1 + t1 * d])
+    # print_segments(file_handle, [f2 - t2 * d, f2 + t2 * d])
+
     lp = liming_parabola(f1, g1, f2, g2)
     intersect_implicit(lp, p1, p2)
 end
@@ -257,6 +291,7 @@ print_footer(f) = println(f, "showpage")
 
 function generate()
     open(filename, "w") do f
+        global file_handle = f
         print_header(f)
         print_grid(f)
         print_curves(f)
