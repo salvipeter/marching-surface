@@ -14,7 +14,7 @@ cells = 3
 curve = p -> sqrt(p[1]^2 + p[2]^2) - 1
 gradient = p -> normalize(p)
 real_curve = [[cos(x), sin(x)] for x in 0:0.01:2pi]
-show_types = [:real :nolinear :liming_cubic]
+show_types = [:noreal :nolinear :liming_cubic]
 ### SETUP_END - do not modify this line
 
 # Global constants
@@ -27,6 +27,14 @@ height = fullheight - 2 * margin
 colors = [ 1 0 0 1 1 0 0
            0 1 0 1 0 1 0
            0 0 1 0 1 1 0 ]
+
+# Global variables
+
+global accuracy
+check_accuracy = false
+
+
+# Main code
 
 const Point = Vector{Float64}
 
@@ -161,6 +169,13 @@ function sample_bezier(cp, resolution)
             tmp[i] = tmp[i] * (1 - u) + tmp[i+1] * u
         end
         push!(result, tmp[1])
+        if check_accuracy
+            global accuracy
+            d = abs(curve(tmp[1]))
+            if d > accuracy
+                accuracy = d
+            end
+        end
     end
     result
 end
@@ -176,7 +191,8 @@ function print_curve(f, approx_type)
                     find_intersection(points[1], points[3]),
                     find_intersection(points[2], points[4]),
                     find_intersection(points[3], points[4])]
-            print_segments(f, filter(x -> x != nothing, ints))
+            endpoints = filter(x -> x != nothing, ints)
+            !isempty(endpoints) && print_segments(f, sample_bezier(endpoints, sampling_res))
         elseif approx_type === :liming_cubic
             ints = [find_intersection2(points[1], points[2]),
                     find_intersection2(points[1], points[3]),
@@ -236,6 +252,9 @@ end
 
 print_footer(f) = println(f, "showpage")
 
+
+# User functions
+
 function generate()
     open(filename, "w") do f
         print_header(f)
@@ -244,6 +263,26 @@ function generate()
         print_settings(f)
         print_footer(f)
     end
+end
+
+function approximate(tolerance; max_cells = 32)
+    cells_old = cells
+    global cells = 1
+    global check_accuracy = true
+    global accuracy = Inf
+    while cells < max_cells && accuracy > tolerance
+        cells += 1
+        accuracy = 0
+        try
+            generate()
+        catch
+            accuracy = Inf      # Silently pass over failing cases
+        end
+    end
+    println("Achieved accuracy: $accuracy, using $cells x $cells cells")
+    check_accuracy = false
+    cells = cells_old
+    nothing
 end
 
 end # module
