@@ -7,16 +7,46 @@ filename = "/tmp/test2d.eps"
 sampling_res = 100
 
 ### SETUP_BEGIN - do not modify this line
-corner = [-1.4, -1.55]
-bbox_edge = 3.0
-cells = 4
-ellipse = [1.2, 0.8]
-curve_original = p -> (p[1]/ellipse[1])^2 + (p[2]/ellipse[2])^2 - 1
-gradient_original = p -> 2 * [p[1]/ellipse[1]^2, p[2]/ellipse[2]^2]
-real_curve = [[ellipse[1]*cos(t), ellipse[2]*sin(t)] for t in 0:0.01:2pi]
+cells = 10
+
+corner = [-10.1, -10.1]
+bbox_edge = 20.0
+curve_original = p -> p[2]^2 - p[1]^3 + 7p[1] - 6
+gradient_original = p -> [-3p[1]^2 + 7, 2p[2]]
+
 show_types = [:real :nolinear :liming_cubic]
 ### SETUP_END - do not modify this line
 
+
+# Sample settings
+
+# corner = [-9.5, -6]
+# bbox_edge = 12.0
+# curve_original = p -> p[1]^4 + 8p[1]^3 + p[2]^4 - 16
+# gradient_original = p -> [4p[1]^3 + 24p[1]^2, 4p[2]^3]
+
+# corner = [-4.05, -4.05]
+# bbox_edge = 8.0
+# curve_original = p -> p[1]^2 - p[2]^2 - p[1]*p[2]*sin(p[1]*p[2])
+# gradient_original = p -> [2*p[1] - (p[2]*sin(p[1]*p[2]) + p[1]*p[2]*cos(p[1]*p[2])*p[2]), -2*p[2] - (p[1]*sin(p[1]*p[2]) + p[1]*p[2]*cos(p[1]*p[2])*p[1])]
+
+# corner = [-4.05, -4.05]
+# bbox_edge = 8.0
+# curve_original = p -> -4p[1] + 10p[1]^2 + p[2]^(-2) + p[2]^2 - 11
+# gradient_original = p -> [-4 + 20p[1], -2p[2]^(-3) + 2p[2]]
+
+# corner = [-1.4, -1.55]
+# bbox_edge = 3.0
+# ellipse = [1.2, 0.8]
+# curve_original = p -> (p[1]/ellipse[1])^2 + (p[2]/ellipse[2])^2 - 1
+# gradient_original = p -> 2 * [p[1]/ellipse[1]^2, p[2]/ellipse[2]^2]
+
+# corner = [-10.1, -10.1]
+# bbox_edge = 20.0
+# curve_original = p -> p[2]^2 - p[1]^3 + 7p[1] - 6
+# gradient_original = p -> [-3p[1]^2 + 7, 2p[2]]
+
+
 # Global constants
 
 fullwidth = 2^-0.25 / 4 * 100 / 2.54 * 72 # A4 = A0 / 4, from centimeters to inches to points
@@ -121,9 +151,6 @@ function liming_parabola(f1, g1, f2, g2)
     # - quadratic: [x^2, xy, y^2, x, y, 1]
     d = f2 - f1
     n = normalize([-d[2], d[1]])
-    if dot(g1, g2) < 0
-        @warn "Opposing gradients"
-    end
     if dot(n, g1) < 0
         n *= -1
     end
@@ -181,11 +208,9 @@ function find_intersection2(p1, p2)
     print_point(file_handle, f2)
     print_segments(file_handle, [p1, f1])
     print_segments(file_handle, [p2, f2])
-    # t1 = [-g1[2], g1[1]]
-    # t2 = [-g2[2], g2[1]]
-    # d = norm(f1 - f2)
-    # print_segments(file_handle, [f1 - t1 * d, f1 + t1 * d])
-    # print_segments(file_handle, [f2 - t2 * d, f2 + t2 * d])
+
+    fd = f2 - f1
+    dot(fd, g2) * dot(fd, g1) > 0 && return find_intersection(p1, p2)
 
     lp = liming_parabola(f1, g1, f2, g2)
     intersect_implicit(lp, p1, p2)
@@ -218,7 +243,12 @@ function sample_bezier(cp, resolution)
 end
 
 function print_curve(f, approx_type)
-    approx_type === :real && return print_segments(f, real_curve)
+    if approx_type === :real
+        cells_old = cells
+        global cells = 100
+        print_curve(f, :linear)
+        cells = cells_old
+    end
     for i in 1:cells, j in 1:cells
         p = corner + [i - 1, j - 1] / cells * bbox_edge
         d = bbox_edge / cells
