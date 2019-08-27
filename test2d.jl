@@ -7,12 +7,12 @@ filename = "/tmp/test2d.eps"
 sampling_res = 100
 
 ### SETUP_BEGIN - do not modify this line
-cells = 10
+cells = 6
 
-corner = [-10.1, -10.1]
-bbox_edge = 20.0
-curve_original = p -> p[2]^2 - p[1]^3 + 7p[1] - 6
-gradient_original = p -> [-3p[1]^2 + 7, 2p[2]]
+corner = [-9.5, -6]
+bbox_edge = 12.0
+curve_original = p -> p[1]^4 + 8p[1]^3 + p[2]^4 - 16
+gradient_original = p -> [4p[1]^3 + 24p[1]^2, 4p[2]^3]
 
 show_types = [:real :nolinear :liming_cubic]
 ### SETUP_END - do not modify this line
@@ -58,6 +58,7 @@ colors = [ 1 0 0 1 1 0 0
            0 1 0 1 0 1 0
            0 0 1 0 1 1 0 ]
 point_radius = 3
+ground_truth_resolution = 100
 
 curve = p -> curve_original(p) / norm(gradient_original(p))
 gradient = p -> normalize(gradient_original(p))
@@ -209,6 +210,7 @@ function find_intersection2(p1, p2)
     print_segments(file_handle, [p1, f1])
     print_segments(file_handle, [p2, f2])
 
+    # When the gradients point to different sides of the edge, fall back to linear
     fd = f2 - f1
     dot(fd, g2) * dot(fd, g1) > 0 && return find_intersection(p1, p2)
 
@@ -245,7 +247,7 @@ end
 function print_curve(f, approx_type)
     if approx_type === :real
         cells_old = cells
-        global cells = 100
+        global cells = ground_truth_resolution
         print_curve(f, :linear)
         cells = cells_old
     end
@@ -269,16 +271,21 @@ function print_curve(f, approx_type)
                        guess_normal(ints[2], points[1], points[3]),
                        guess_normal(ints[3], points[2], points[4]),
                        guess_normal(ints[4], points[3], points[4])]
+            dirs = [ints[1] === nothing ? nothing : [0, 1],
+                    ints[2] === nothing ? nothing : [1, 0],
+                    ints[3] === nothing ? nothing : [-1, 0],
+                    ints[4] === nothing ? nothing : [0, -1]]
             ints = filter(x -> x != nothing, ints)
             normals = filter(x -> x != nothing, normals)
+            dirs = filter(x -> x != nothing, dirs)
             length(ints) != 2 && continue # TODO
-            p1, n1 = ints[1], normals[1]
-            p2, n2 = ints[2], normals[2]
+            p1, n1, d1 = ints[1], normals[1], dirs[1]
+            p2, n2, d2 = ints[2], normals[2], dirs[2]
             t1, t2 = normalize([-n1[2], n1[1]]), normalize([-n2[2], n2[1]])
-            if dot(t1, p2 - p1) < 0
+            if dot(t1, d1) < 0
                 t1 *= -1
             end
-            if dot(t2, p1 - p2) < 0
+            if dot(t2, d2) < 0
                 t2 *= -1
             end
             d = norm(p2 - p1) / 3
