@@ -10,11 +10,11 @@ sampling_res = 100
 corner = [-1.4, -1.55]
 bbox_edge = 3.0
 cells = 4
-ellipse = [1,1] #[1.2, 0.8]
-curve = p -> norm([p[1]/ellipse[1], p[2]/ellipse[2]]) - 1
-gradient = p -> normalize([p[1]/ellipse[1], p[2]/ellipse[2]])
-real_curve = [[ellipse[1]*cos(x), ellipse[2]*sin(x)] for x in 0:0.01:2pi]
-show_types = [:real :linear :liming_cubic]
+ellipse = [1.2, 0.8]
+curve_original = p -> (p[1]/ellipse[1])^2 + (p[2]/ellipse[2])^2 - 1
+gradient_original = p -> 2 * [p[1]/ellipse[1]^2, p[2]/ellipse[2]^2]
+real_curve = [[ellipse[1]*cos(t), ellipse[2]*sin(t)] for t in 0:0.01:2pi]
+show_types = [:real :nolinear :liming_cubic]
 ### SETUP_END - do not modify this line
 
 # Global constants
@@ -29,6 +29,9 @@ colors = [ 1 0 0 1 1 0 0
            0 0 1 0 1 1 0 ]
 point_radius = 3
 
+curve = p -> curve_original(p) / norm(gradient_original(p))
+gradient = p -> normalize(gradient_original(p))
+
 # Global variables
 
 global accuracy
@@ -37,8 +40,6 @@ global file_handle              # for debug
 
 
 # Main code
-
-const Point = Vector{Float64}
 
 function print_header(f)
     println(f, """%!PS-Adobe-2.0
@@ -178,6 +179,8 @@ function find_intersection2(p1, p2)
     # DEBUG: print footpoints
     print_point(file_handle, f1)
     print_point(file_handle, f2)
+    print_segments(file_handle, [p1, f1])
+    print_segments(file_handle, [p2, f2])
     # t1 = [-g1[2], g1[1]]
     # t2 = [-g2[2], g2[1]]
     # d = norm(f1 - f2)
