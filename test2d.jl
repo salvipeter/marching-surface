@@ -1,4 +1,6 @@
 module Marching2D
+
+using ForwardDiff
 using LinearAlgebra
 
 # Global settings
@@ -12,7 +14,6 @@ cells = 6
 corner = [-9.5, -6]
 bbox_edge = 12.0
 curve_original = p -> p[1]^4 + 8p[1]^3 + p[2]^4 - 16
-gradient_original = p -> [4p[1]^3 + 24p[1]^2, 4p[2]^3]
 
 show_types = [:real :nolinear :liming_cubic]
 ### SETUP_END - do not modify this line
@@ -23,28 +24,23 @@ show_types = [:real :nolinear :liming_cubic]
 # corner = [-9.5, -6]
 # bbox_edge = 12.0
 # curve_original = p -> p[1]^4 + 8p[1]^3 + p[2]^4 - 16
-# gradient_original = p -> [4p[1]^3 + 24p[1]^2, 4p[2]^3]
 
 # corner = [-4.05, -4.05]
 # bbox_edge = 8.0
 # curve_original = p -> p[1]^2 - p[2]^2 - p[1]*p[2]*sin(p[1]*p[2])
-# gradient_original = p -> [2*p[1] - (p[2]*sin(p[1]*p[2]) + p[1]*p[2]*cos(p[1]*p[2])*p[2]), -2*p[2] - (p[1]*sin(p[1]*p[2]) + p[1]*p[2]*cos(p[1]*p[2])*p[1])]
 
 # corner = [-4.05, -4.05]
 # bbox_edge = 8.0
 # curve_original = p -> -4p[1] + 10p[1]^2 + p[2]^(-2) + p[2]^2 - 11
-# gradient_original = p -> [-4 + 20p[1], -2p[2]^(-3) + 2p[2]]
 
 # corner = [-1.4, -1.55]
 # bbox_edge = 3.0
 # ellipse = [1.2, 0.8]
 # curve_original = p -> (p[1]/ellipse[1])^2 + (p[2]/ellipse[2])^2 - 1
-# gradient_original = p -> 2 * [p[1]/ellipse[1]^2, p[2]/ellipse[2]^2]
 
 # corner = [-10.1, -10.1]
 # bbox_edge = 20.0
 # curve_original = p -> p[2]^2 - p[1]^3 + 7p[1] - 6
-# gradient_original = p -> [-3p[1]^2 + 7, 2p[2]]
 
 
 # Global constants
@@ -60,14 +56,18 @@ colors = [ 1 0 0 1 1 0 0
 point_radius = 3
 ground_truth_resolution = 100
 
-curve = p -> curve_original(p) / norm(gradient_original(p))
-gradient = p -> normalize(gradient_original(p))
-
 # Global variables
 
 global accuracy
 check_accuracy = false
 global file_handle              # for debug
+
+
+# Wrapper functions
+
+gradient_original = p -> ForwardDiff.gradient(curve_original, p)
+curve = p -> curve_original(p) / norm(gradient_original(p))
+gradient = p -> normalize(gradient_original(p))
 
 
 # Main code
