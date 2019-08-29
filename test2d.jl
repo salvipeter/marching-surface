@@ -14,8 +14,11 @@ cells = 6
 corner = [-9.5, -6]
 bbox_edge = 12.0
 curve_original = p -> p[1]^4 + 8p[1]^3 + p[2]^4 - 16
+offsets = [-0.7 0.3]
+onsets = [-0.7 0.3]
 
-show_types = [:real :nolinear :liming_cubic]
+#              red    green       blue      yellow  pink    cyan
+show_types = [:real :nolinear :liming_cubic :skip :offsets :onsets]
 ### SETUP_END - do not modify this line
 
 
@@ -221,7 +224,7 @@ end
 function guess_normal(p, p1, p2)
     p === nothing && return nothing
     x = norm(p - p1) / norm(p2 - p1)
-    gradient(p1) * (1 - x) + gradient(p2) * x
+    normalize(gradient(p1) * (1 - x) + gradient(p2) * x)
 end
 
 function sample_bezier(cp, resolution)
@@ -244,12 +247,53 @@ function sample_bezier(cp, resolution)
     result
 end
 
+function print_offset_curve(f, offset)
+    for i in 1:cells, j in 1:cells
+        p = corner + [i - 1, j - 1] / cells * bbox_edge
+        d = bbox_edge / cells
+        points = [p, p + [d, 0], p + [0, d], p + [d, d]]
+        ints = [find_intersection(points[1], points[2]),
+                find_intersection(points[1], points[3]),
+                find_intersection(points[2], points[4]),
+                find_intersection(points[3], points[4])]
+        normals = [guess_normal(ints[1], points[1], points[2]),
+                   guess_normal(ints[2], points[1], points[3]),
+                   guess_normal(ints[3], points[2], points[4]),
+                   guess_normal(ints[4], points[3], points[4])]
+        endpoints = filter(x -> x != nothing, ints)
+        normals = filter(x -> x != nothing, normals)
+        if !isempty(endpoints)
+            print_segments(f, [endpoints[1] + normals[1] * offset,
+                               endpoints[2] + normals[2] * offset])
+        end
+    end
+end
+
 function print_curve(f, approx_type)
     if approx_type === :real
         cells_old = cells
         global cells = ground_truth_resolution
         print_curve(f, :linear)
         cells = cells_old
+    end
+    if approx_type === :offsets
+        cells_old = cells
+        global cells = ground_truth_resolution
+        for offset in offsets
+            print_offset_curve(f, offset)
+        end
+        cells = cells_old
+    end
+    if approx_type === :onsets
+        cells_old = cells
+        curve_old = curve
+        global cells = ground_truth_resolution
+        for onset in onsets
+            curve = p -> curve_old(p) - onset
+            print_curve(f, :linear)
+        end
+        cells = cells_old
+        global curve = curve_old
     end
     for i in 1:cells, j in 1:cells
         p = corner + [i - 1, j - 1] / cells * bbox_edge
@@ -298,7 +342,7 @@ end
 
 function print_curves(f)
     for i in 1:length(show_types)
-        c = colors[i,:]
+        c = colors[:,i]
         println(f, "$(c[1]) $(c[2]) $(c[3]) setrgbcolor")
         print_curve(f, show_types[i])
     end
@@ -309,7 +353,7 @@ function print_settings(f)
     line_height = 24
     line_num = 1
     y = fullheight - width
-    println(f, "/Times-Roman findfont 18 scalefont setfont")
+    println(f, "/Courier findfont 14 scalefont setfont")
     found = false
     for line in split(read("test2d.jl", String), "\n")
         if !found && match(r"^### SETUP_BEGIN.*", line) != nothing
