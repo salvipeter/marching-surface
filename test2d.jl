@@ -10,37 +10,42 @@ sampling_res = 100
 
 ### SETUP_BEGIN - do not modify this line
 cells = 6
+offsets = [-0.5, 0.5]
+onsets = [-0.5, 0.5]
 
 corner = [-9.5, -6]
 bbox_edge = 12.0
 curve_original = p -> p[1]^4 + 8p[1]^3 + p[2]^4 - 16
-offsets = [-0.7 0.3]
-onsets = [-0.7 0.3]
 
-#              red    green       blue      yellow  pink    cyan
-show_types = [:real :nolinear :liming_cubic :skip :offsets :onsets]
+show_types = [:real :nolinear :liming_cubic :skip :nooffsets :noonsets]
+#              red    green       blue      yellow   pink      cyan
 ### SETUP_END - do not modify this line
 
 
 # Sample settings
 
+# Blob
 # corner = [-9.5, -6]
 # bbox_edge = 12.0
 # curve_original = p -> p[1]^4 + 8p[1]^3 + p[2]^4 - 16
 
+# X
 # corner = [-4.05, -4.05]
 # bbox_edge = 8.0
 # curve_original = p -> p[1]^2 - p[2]^2 - p[1]*p[2]*sin(p[1]*p[2])
 
+# Two eggs
 # corner = [-4.05, -4.05]
 # bbox_edge = 8.0
 # curve_original = p -> -4p[1] + 10p[1]^2 + p[2]^(-2) + p[2]^2 - 11
 
+# Ellipse
 # corner = [-1.4, -1.55]
 # bbox_edge = 3.0
 # ellipse = [1.2, 0.8]
 # curve_original = p -> (p[1]/ellipse[1])^2 + (p[2]/ellipse[2])^2 - 1
 
+# Egg + line
 # corner = [-10.1, -10.1]
 # bbox_edge = 20.0
 # curve_original = p -> p[2]^2 - p[1]^3 + 7p[1] - 6
@@ -350,10 +355,10 @@ function print_curves(f)
 end
 
 function print_settings(f)
-    line_height = 24
-    line_num = 1
+    line_height = 16
+    line_num = 2
     y = fullheight - width
-    println(f, "/Courier findfont 14 scalefont setfont")
+    println(f, "/Courier findfont 12 scalefont setfont")
     found = false
     for line in split(read("test2d.jl", String), "\n")
         if !found && match(r"^### SETUP_BEGIN.*", line) != nothing
