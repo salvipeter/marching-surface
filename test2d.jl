@@ -7,8 +7,10 @@ using LinearAlgebra
 
 filename = "/tmp/test2d.eps"
 sampling_res = 100
+ground_truth_resolution = 100
 
 ### SETUP_BEGIN - do not modify this line
+euclidean_distance = true
 cells = 6
 offsets = [-0.5, 0.5]
 onsets = [-0.5, 0.5]
@@ -62,12 +64,13 @@ colors = [ 1 0 0 1 1 0 0
            0 1 0 1 0 1 0
            0 0 1 0 1 1 0 ]
 point_radius = 3
-ground_truth_resolution = 100
 
 # Global variables
 
 global accuracy
 check_accuracy = false
+global curve_old
+global gradient_old
 global file_handle              # for debug
 
 
@@ -215,24 +218,32 @@ function find_intersection2(p1, p2)
     # DEBUG: print footpoints
     print_point(file_handle, f1)
     print_point(file_handle, f2)
-    print_segments(file_handle, [p1, f1])
-    print_segments(file_handle, [p2, f2])
+    if !euclidean_distance
+        print_segments(file_handle, [p1, f1])
+        print_segments(file_handle, [p2, f2])
+    end
 
     # When the gradients point to different sides of the edge, fall back to linear
     fd = f2 - f1
     dot(fd, g2) * dot(fd, g1) > 0 && return find_intersection(p1, p2)
+    # Also when either is zero
+    (is_zero_vector(g1) || is_zero_vector(g2) < 1.0e-5) && return find_intersection(p1, p2)
 
     lp = liming_parabola(f1, g1, f2, g2)
     intersect_implicit(lp, p1, p2)
 end
 
+is_zero_vector(v) = norm(v) > 1.0e-8
+safe_normalize(p) = is_zero_vector(p) ? normalize(p) : p
+
 function guess_normal(p, p1, p2)
     p === nothing && return nothing
     x = norm(p - p1) / norm(p2 - p1)
-    normalize(gradient(p1) * (1 - x) + gradient(p2) * x)
+    safe_normalize(gradient(p1) * (1 - x) + gradient(p2) * x)
 end
 
 function sample_bezier(cp, resolution)
+    !check_accuracy && length(cp) == 2 && return cp
     result = []
     n = length(cp) - 1
     for u in range(0, stop=1, length=resolution)
@@ -274,31 +285,40 @@ function print_offset_curve(f, offset)
     end
 end
 
+function with_high_resolution(f)
+    cells_old = cells
+    global cells = ground_truth_resolution
+    global curve, curve_old = curve_old, curve
+    global gradient, gradient_old = gradient_old, gradient
+    f()
+    cells = cells_old
+    curve, curve_old = curve_old, curve
+    gradient, gradient_old = gradient_old, gradient
+end
+
 function print_curve(f, approx_type)
     if approx_type === :real
-        cells_old = cells
-        global cells = ground_truth_resolution
-        print_curve(f, :linear)
-        cells = cells_old
-    end
-    if approx_type === :offsets
-        cells_old = cells
-        global cells = ground_truth_resolution
-        for offset in offsets
-            print_offset_curve(f, offset)
-        end
-        cells = cells_old
-    end
-    if approx_type === :onsets
-        cells_old = cells
-        curve_old = curve
-        global cells = ground_truth_resolution
-        for onset in onsets
-            curve = p -> curve_old(p) - onset
+        with_high_resolution() do
             print_curve(f, :linear)
         end
-        cells = cells_old
-        global curve = curve_old
+    end
+    if approx_type === :offsets
+        with_high_resolution() do
+            for offset in offsets
+                print_offset_curve(f, offset)
+            end
+        end
+    end
+    if approx_type === :onsets
+        with_high_resolution() do
+            curve_old = curve
+            global cells = ground_truth_resolution
+            for onset in onsets
+                curve = p -> curve_old(p) - onset
+                print_curve(f, :linear)
+            end
+            global curve = curve_old
+        end
     end
     for i in 1:cells, j in 1:cells
         p = corner + [i - 1, j - 1] / cells * bbox_edge
@@ -330,7 +350,7 @@ function print_curve(f, approx_type)
             length(ints) != 2 && continue # TODO
             p1, n1, d1 = ints[1], normals[1], dirs[1]
             p2, n2, d2 = ints[2], normals[2], dirs[2]
-            t1, t2 = normalize([-n1[2], n1[1]]), normalize([-n2[2], n2[1]])
+            t1, t2 = [-n1[2], n1[1]], [-n2[2], n2[1]]
             if dot(t1, d1) < 0
                 t1 *= -1
             end
@@ -376,36 +396,91 @@ end
 print_footer(f) = println(f, "showpage")
 
 
-# User functions
+# Euclidean distance helper functions
 
-function generate()
-    open(filename, "w") do f
-        global file_handle = f
-        print_header(f)
-        print_grid(f)
-        print_curves(f)
-        print_settings(f)
-        print_footer(f)
+function sample_curve()
+    result = []
+    cells = ground_truth_resolution
+    for i in 1:cells, j in 1:cells
+        p = corner + [i - 1, j - 1] / cells * bbox_edge
+        d = bbox_edge / cells
+        points = [p, p + [d, 0], p + [0, d], p + [d, d]]
+        ints = [find_intersection(points[1], points[2]),
+                find_intersection(points[1], points[3]),
+                find_intersection(points[2], points[4]),
+                find_intersection(points[3], points[4])]
+        endpoints = filter(x -> x != nothing, ints)
+        if !isempty(endpoints)
+            push!(result, endpoints[1], endpoints[2])
+        end
+    end
+    result
+end
+
+function deviation(points, p)
+    min = Inf
+    local qmin
+    for q in points
+        d = norm(p - q)
+        if d < min
+            min = d
+            qmin = q
+        end
+    end
+    qmin - p
+end
+
+function with_euclidean_distance(f)
+    if euclidean_distance
+        global curve_old = curve
+        global gradient_old = gradient
+        points = sample_curve()
+        global curve = p -> copysign(norm(deviation(points, p)), curve_old(p))
+        global gradient = p -> -safe_normalize(deviation(points, p)) * sign(curve_old(p))
+        f()
+        curve = curve_old
+        gradient = gradient_old
+    else
+        f()
     end
 end
 
-function approximate(tolerance; max_cells = 32)
-    cells_old = cells
-    global cells = 1
-    global check_accuracy = true
-    global accuracy = Inf
-    while cells < max_cells && accuracy > tolerance
-        cells += 1
-        accuracy = 0
-        try
-            generate()
-        catch
-            accuracy = Inf      # Silently pass over failing cases
+
+# User functions
+
+function generate()
+    with_euclidean_distance() do
+        open(filename, "w") do f
+            global file_handle = f
+            print_header(f)
+            print_grid(f)
+            print_curves(f)
+            print_settings(f)
+            print_footer(f)
         end
     end
-    println("Achieved accuracy: $accuracy, using $cells x $cells cells")
-    check_accuracy = false
-    cells = cells_old
+    nothing
+end
+
+function approximate(tolerance; max_cells = 32)
+    with_euclidean_distance() do
+        cells_old = cells
+        global cells = 1
+        global check_accuracy = true
+        global accuracy = Inf
+        while cells < max_cells && accuracy > tolerance
+            cells += 1
+            accuracy = 0
+            try
+                generate()
+            catch
+                accuracy = Inf      # Silently pass over failing cases
+            end
+        end
+        println("Achieved accuracy: $accuracy, using $cells x $cells cells")
+        check_accuracy = false
+        cells = cells_old
+    end
     nothing
 end
 
