@@ -11,16 +11,16 @@ ground_truth_resolution = 100
 
 ### SETUP_BEGIN - do not modify this line
 euclidean_distance = true
-cells = 6
-offsets = [-0.5, 0.5]
-onsets = [-0.5, 0.5]
+cells = 10
+offsets = [0.9, 0.6, 0.3, -0.3, -0.6, -0.9]
+onsets = [0.9, 0.6, 0.3, -0.3, -0.6, -0.9]
 
-corner = [-9.5, -6]
-bbox_edge = 12.0
-curve_original = p -> p[1]^4 + 8p[1]^3 + p[2]^4 - 16
+corner = [-4.05, -4.05]
+bbox_edge = 8.0
+curve_original = p -> p[1]^2 - p[2]^2 - p[1]*p[2]*sin(p[1]*p[2])
 
-show_types = [:real :nolinear :liming_cubic :skip :nooffsets :noonsets]
-#              red    green       blue      yellow   pink      cyan
+show_types = [:real :linear :liming_cubic :skip :nooffsets :noonsets]
+#              red     green      blue      yellow    pink      cyan
 ### SETUP_END - do not modify this line
 
 
@@ -156,29 +156,46 @@ function solve_quadratic(a, b, c)
     ((-b + D) / 2a, (-b - D) / 2a)
 end
 
+evalQuadratic(S, p) =
+    S[1] * p[1]^2 + S[2] * p[1] * p[2] + S[3] * p[2]^2 + S[4] * p[1] + S[5] * p[2] + S[6]
+
 function liming_parabola(f1, g1, f2, g2)
     # Assuming equation S3^2 - lambda S1 S2 = 0
     # Using vectors as polynomials
     # - linear: [x, y, 1]
     # - quadratic: [x^2, xy, y^2, x, y, 1]
-    d = f2 - f1
-    n = normalize([-d[2], d[1]])
-    if dot(n, g1) < 0
-        n *= -1
+
+    if dot(g1, f2 - f1) < 0
+        g1 *= -1
     end
     S1 = [g1[1], g1[2], -dot(f1, g1)]
+
+    if dot(g2, f1 - f2) < 0
+        g2 *= -1
+    end
     S2 = [g2[1], g2[2], -dot(f2, g2)]
+
+    f3 = [S1'; S2'][:,1:2] \ [-S1[3], -S2[3]] # intersection
+    d = f2 - f1
+    n = normalize([-d[2], d[1]])
+    if dot(n, f3 - f1) < 0
+        n *= -1
+    end
     S3 = [n[1], n[2], -dot(f1, n)]
+
     S1S2 = [S1[1]*S2[1], S1[1]*S2[2]+S1[2]*S2[1], S1[2]*S2[2],
             S1[1]*S2[3]+S1[3]*S2[1], S1[2]*S2[3]+S1[3]*S2[2], S1[3]*S2[3]]
     S3S3 = [S3[1]^2, 2*S3[1]*S3[2], S3[2]^2, 2*S3[1]*S3[3], 2*S3[2]*S3[3], S3[3]^2]
 
-    # Compute correct lambda for parabola, i.e., b^2 - 4ac = 0
-    # This is a quadratic equation in lambda, but the constant term vanishes
-    a = [S1S2[1], S3S3[1]]
-    c = [S1S2[3], S3S3[3]]
-    b = [S1S2[2], S3S3[2]]
-    lambda = (2*b[1]*b[2]-4*(a[1]*c[2]+a[2]*c[1])) / (b[1]^2-4*a[1]*c[1])
+    p = f1 / 4 + f3 / 2 + f2 / 4 # A point on the curve
+    lambda = evalQuadratic(S3S3, p) / evalQuadratic(S1S2, p)
+
+    # Original Liming equation: (1 - m) L1 L2 - m L0^2 = 0
+    m = 1 / (lambda + 1)
+    if m < 0 || m > 1
+        @warn "Liming constant outside [0, 1]: $m"
+        lambda = 0
+    end
 
     S3S3 - lambda * S1S2
 end
@@ -189,7 +206,11 @@ function intersect_implicit(S, p1, p2)
         y1, y2 = solve_quadratic(S[3], S[2] * x + S[5], S[1] * x^2 + S[4] * x + S[6])
         lo, hi = min(p1[2], p2[2]), max(p1[2], p2[2])
         y = y1 < lo || y1 > hi ? y2 : y1
-        if y < lo || y > hi
+        if lo <= y1 <= hi && lo <= y2 <= hi
+            # Two valid solutions; take the one closer to the linear approximation
+            yl = find_intersection(p1, p2)[2]
+            y = abs(y1 - yl) < abs(y2 - yl) ? y1 : y2
+        elseif y < lo || y > hi
             @warn "$y is not in [$lo, $hi]"
         end
         [x, y]
@@ -199,12 +220,19 @@ function intersect_implicit(S, p1, p2)
         x1, x2 = solve_quadratic(S[1], S[2] * y + S[4], S[3] * y^2 + S[5] * y + S[6])
         lo, hi = min(p1[1], p2[1]), max(p1[1], p2[1])
         x = x1 < lo || x1 > hi ? x2 : x1
-        if x < lo || x > hi
+        if lo <= x1 <= hi && lo <= x2 <= hi
+            # Two valid solutions; take the one closer to the linear approximation
+            xl = find_intersection(p1, p2)[1]
+            x = abs(x1 - xl) < abs(x2 - xl) ? x1 : x2
+        elseif x < lo || x > hi
             @warn "$x is not in [$lo, $hi]"
         end
         [x, y]
     end
 end
+
+is_zero_vector(v) = norm(v) < 1.0e-8
+safe_normalize(p) = is_zero_vector(p) ? p : normalize(p)
 
 function find_intersection2(p1, p2)
     v1 = curve(p1)
@@ -223,18 +251,14 @@ function find_intersection2(p1, p2)
         print_segments(file_handle, [p2, f2])
     end
 
-    # When the gradients point to different sides of the edge, fall back to linear
-    fd = f2 - f1
-    dot(fd, g2) * dot(fd, g1) > 0 && return find_intersection(p1, p2)
+    # When the gradients are nearly parallel (< 25 degrees), fall back to linear
+    abs(dot(g1, g2)) > 0.9 && return find_intersection(p1, p2)
     # Also when either is zero
-    (is_zero_vector(g1) || is_zero_vector(g2) < 1.0e-5) && return find_intersection(p1, p2)
+    (is_zero_vector(g1) || is_zero_vector(g2)) && return find_intersection(p1, p2)
 
     lp = liming_parabola(f1, g1, f2, g2)
     intersect_implicit(lp, p1, p2)
 end
-
-is_zero_vector(v) = norm(v) > 1.0e-8
-safe_normalize(p) = is_zero_vector(p) ? normalize(p) : p
 
 function guess_normal(p, p1, p2)
     p === nothing && return nothing
@@ -475,6 +499,9 @@ function approximate(tolerance; max_cells = 32)
                 generate()
             catch
                 accuracy = Inf      # Silently pass over failing cases
+            end
+            if accuracy != Inf
+                println("Cells: $cells\tAccuracy: $accuracy")
             end
         end
         println("Achieved accuracy: $accuracy, using $cells x $cells cells")

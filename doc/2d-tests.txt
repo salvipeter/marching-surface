@@ -1,0 +1,115 @@
+Subject: Marching surface developments
+
+Hi Alyn,
+
+We have been working with Tamas on the marching surface project. The conclusion of our experiments was that even the corner points are not precise enough, and we should first solve this problem in 2D.
+
+So next I created a 2D application for testing out ideas. Currently the algorithm is the following:
+
+1. Normalize distances and gradients by dividing them with the norm of the gradient.
+
+2. Compute "footpoints" f = p - d * g, where p is one corner of a cell, and d and g are the (normalized) distance and (unit) gradient at p, respectively. If the distance is a good approximation of Euclidean distance, then this point should lie on the curve, with g perpendicular to the curve's tangent.
+
+3. For all f1, f2, for which d1 * d2 < 0, fit an implicit parabola using Liming's method, i.e., take the implicit line equations L1, L2 defined by the footpoint and perpendicular to the gradient, as well as the line L0 going through both footpoints, and define the curve
+
+  P = (1 - m) L1 L2 - m L0^2 = 0    (m in [0, 1])
+
+with m set in a way that P becomes a parabola. (See liming.pdf; the line equations have positive signs in the interior of the triangle.)
+
+4. Find the intersection x between P and the line going through p1 and p2; this will be an endpoint of the cell's curve.
+
+Note. The method in 3-4 cannot be applied when the gradients are nearly parallel. In this case, we fall back to the linear approximation
+
+  x = p1 * d2/(d2-d1) + p2 * d1/(d2-d1).
+
+Alternatively, we can also set m = 1 and thus take the intersection between L0 and the cell edge - there is no consensus yet on which is better.
+
+Another problem is that the parabola may intersect the cell edge twice. In this case, we use the solution closer to the linear approximation.
+
+5. Then we approximate gradient directions at the intersection points as
+
+  n = g1 * (1 - t) + p2 * t,
+
+where t = |x - p1| / |p2 - p1|.
+
+6. Now we are ready to create curves. We are currently using cubic curves (this is likely to change), defined by the Bezier control points
+
+  [x1, x1 + l t1, x2 + l t2, x2],
+
+where t1 and t2 are unit vectors perpendicular to n1 and n2, respectively, and l = |x2 - x1| / 3.
+
+Examples (numbers are page numbers in the attached PDF):
+
+Color notations:
+- red curve: the original curve to be approximated
+- green curve: the linear (marching squares) approximation
+- blue curve: our approximation
+- blue circles: the footpoints, with lines going to the corresponding cell corners
+- pink curves: exact offsets
+- cyan curves: algebraic offsets
+
+1. Unit circle, using Euclidean distance
+
+On a 4x4 grid, the approximation is visually almost perfect. The error is < 0.01; with marching squares, the same precision can be achieved on a 14x14 grid. Also, for the error to be less than 0.001, our method needs 10x10 cells, while the marching squares needs 32x32. (With adaptive cell refinement the number of cells wouldn't differ so much, but it is not implemented yet.)
+
+2. Unit circle, using (normalized) algebraic distance
+
+The gradients are close to parallel in most of the intersections, so we use linear interpolation. At the remaining points our estimates are clearly better.
+
+3. Unit circle with more cells
+
+On a 6x6 grid the result is much better, but the error is still > 0.02.
+
+4. Unit circle with even more cells
+
+For the error to be < 0.01, we need 11x11 cells.
+
+5. Blob
+
+The next example shows several problems.
+
+i) Most gradients are close to parallel, so we fall back to linear interpolation, which is not good enough.
+
+ii) In the case shown in the pink rectangle, the parabola intersects the edge twice, but even the better of the two intersections is not better than the linear interpolation.
+
+We can see that problems occur when the footpoints fall far from the curve, i.e., where the distance does not approximate the Euclidean distance well enough.
+
+6. Blob with offsets
+
+This is the same approximation, but with 3 equidistant offsets shown.
+
+The first offset line (both inside and outside) is well approximated by the algebraic offset, but then the pink and cyan lines start to diverge, which results (e.g.) in the extremely wrong footpoints at the center right.
+
+The conclusion is that even normalized distances are only good in a close proximity of the curve, so we would need a much more refined grid - but a dense grid would have nearly linear elements, so we wouldn't be better than the marching squares algorithm.
+
+So let's assume that we have perfect Euclidean distance & gradient. This is plausible in the marching surface context of Tamas, where there is a given mesh that we want to approximate, so we can compute exact distances.
+
+7. Blob with Euclidean distance
+
+On the left side, it is clearly better than the marching squares.
+
+On the right side, we have an almost zero gradient, so we get the wrong tangent direction.
+
+Let's see some other functions...
+
+8. Eggs
+
+At the center there are cells with 3 edge intersections, which are not handled correctly currently. Putting that aside, this is quite good; a fullness scalar could help reconstruct the tip of the eggs.
+
+9. Egg & line
+
+The egg is quite good; the line needs much improvement :)
+
+10. X
+
+This is our nastiest example. Fullnesses would help here as well.
+
+--
+
+So this is where we are now.
+I'm not sure if the direction we are taking - working on 2D cases with Euclidean distance - is interesting to you or not (I have invested around 18 hours in 2D experimenting so far).
+What do you think?
+
+Best,
+
+Peter
