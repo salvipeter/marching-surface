@@ -262,7 +262,9 @@ end
 
 function guess_normal(p, p1, p2)
     p === nothing && return nothing
-    x = norm(p - p1) / norm(p2 - p1)
+    v1 = curve(p1)
+    v2 = curve(p2)
+    x = abs(v1) / abs(v2 - v1)
     safe_normalize(gradient(p1) * (1 - x) + gradient(p2) * x)
 end
 
