@@ -15,11 +15,12 @@ cells = 10
 offsets = [0.9, 0.6, 0.3, -0.3, -0.6, -0.9]
 onsets = [0.9, 0.6, 0.3, -0.3, -0.6, -0.9]
 
-corner = [-4.05, -4.05]
-bbox_edge = 8.0
-curve_original = p -> p[1]^2 - p[2]^2 - p[1]*p[2]*sin(p[1]*p[2])
+corner = [-1.4, -1.55]
+bbox_edge = 3.0
+ellipse = [1, 1]
+curve_original = p -> (p[1]/ellipse[1])^2 + (p[2]/ellipse[2])^2 - 1
 
-show_types = [:real :linear :liming_cubic :skip :nooffsets :noonsets]
+show_types = [:real :linear :noliming_cubic :skip :nooffsets :noonsets]
 #              red     green      blue      yellow    pink      cyan
 ### SETUP_END - do not modify this line
 
