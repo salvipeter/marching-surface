@@ -11,6 +11,7 @@ import Graphics
 # GUI parameters
 const width = 500
 const height = 500
+const click_precision = 10
 const point_size = 5
 const tangent_size = 40
 const corners = [[100, 100], [100, 400], [400, 400], [400, 100]]
@@ -20,12 +21,14 @@ show_simple = true
 show_implicit = true
 show_tangents = true
 show_intersections = true
+simple_intersections = true
 
 # Global variables
 global points = [[151.56365966796875, 196.9283447265625],
                  [53.91229248046875, 240.6383056640625],
                  [428.6517333984375, 239.539306640625],
                  [340.4219970703125, 208.86520385742188]]
+global signs = [1, -1, -1, 1]
 global simple_curve
 global implicit_curve
 global intersections
@@ -51,6 +54,72 @@ function normalConstraint(p, n, degree)
 end
 
 function fitCurve(points, normals, degree)
+end
+
+
+# Main logic
+
+is_zero_vector(v) = norm(v) < 1.0e-8
+safe_normalize(p) = is_zero_vector(p) ? p : normalize(p)
+
+gradient(i) = normalize(points[i] - corners[i])
+distance(i) = norm(points[i] - corners[i]) * signs[i]
+
+function find_intersection(i, j)
+    v1 = distance(i)
+    v2 = distance(j)
+    v1 * v2 > 0 && return nothing
+    x = abs(v1) / abs(v2 - v1)
+    corners[i] * (1 - x) + corners[j] * x
+end
+
+function guess_normal(p, i, j)
+    p === nothing && return nothing
+    v1 = distance(i)
+    v2 = distance(j)
+    x = abs(v1) / abs(v2 - v1)
+    safe_normalize(gradient(i) * (x - 1) + gradient(j) * x)
+end
+
+function find_intersection_with_curve(i, j)
+    # TODO
+    p = corners[i]
+    n = gradient(i)
+    (p, n)
+end
+
+function generate_curve()
+    global simple_curve = []
+    global implicit_curve = []
+    global intersections = []
+
+    # Simple
+    ints = [find_intersection(i, mod1(i + 1, 4)) for i in 1:4]
+    normals = [guess_normal(ints[i], i, mod1(i + 1, 4)) for i in 1:4]
+    ints = filter(x -> x != nothing, ints)
+    if length(ints) == 2
+        normals = filter(x -> x != nothing, normals)
+        simple_curve = [ints[1], ints[2]]
+        if simple_intersections
+            intersections = [(ints[1], normals[1]), (ints[2], normals[2])]
+        end
+    end
+
+    # Implicit
+
+    ints = [find_intersection_with_curve(i, mod1(i + 1, 4)) for i in 1:4]
+    # dirs = [ints[1] === nothing ? nothing : [0, 1],
+    #         ints[2] === nothing ? nothing : [1, 0],
+    #         ints[3] === nothing ? nothing : [-1, 0],
+    #         ints[4] === nothing ? nothing : [0, -1]]
+    ints = filter(x -> x != nothing, ints)
+    length(ints) != 2 && return
+    # dirs = filter(x -> x != nothing, dirs)
+
+    # implicit_curve = 
+    if !simple_intersections
+        intersections = [ints[1], ints[2]]
+    end
 end
 
 
@@ -96,13 +165,24 @@ draw_callback = @guarded (canvas) -> begin
         draw_polygon(ctx, implicit_curve)
     end
 
-    # Footpoints (input)
+    # Input
     for p in [corners; points]
+    end
+    for i in 1:4
+        p = corners[i]
+        if signs[i] == 1
+            Graphics.set_source_rgb(ctx, 0, 0, 0)
+        else
+            Graphics.set_source_rgb(ctx, 1, 0, 0)
+        end
+        Graphics.arc(ctx, p[1], p[2], point_size, 0, 2pi)
+        Graphics.fill(ctx)
+        # Footpoints
+        p = points[i]
         Graphics.set_source_rgb(ctx, 0, 0, 0)
         Graphics.arc(ctx, p[1], p[2], point_size, 0, 2pi)
         Graphics.fill(ctx)
-    end
-    for i in 1:4
+        # Footpoint lines
         Graphics.set_source_rgb(ctx, 0, 0, 0)
         Graphics.set_line_width(ctx, 1.0)
         line = [corners[i], points[i]]
@@ -119,7 +199,7 @@ draw_callback = @guarded (canvas) -> begin
             d = [n[2], -n[1]] * tangent_size
             line = [p + d, p - d]
             draw_polygon(ctx, line)
-n        end
+        end
     end
 
     if show_intersections
@@ -141,16 +221,20 @@ end
 
 # GUI
 
-function generate_curve()
-    global simple_curve = []
-    global implicit_curve = []
-    global intersections = []
-end
-
 mousedown_handler = @guarded (canvas, event) -> begin
     p = [event.x, event.y]
     global clicked = findfirst(points) do q
-        norm(p - q) < 10
+        norm(p - q) < click_precision
+    end
+    if clicked === nothing
+        signchange = findfirst(corners) do q
+            norm(p - q) < click_precision
+        end
+        if signchange != nothing
+            signs[signchange] *= -1
+            generate_curve()
+            draw(canvas)
+        end
     end
 end
 
@@ -219,6 +303,16 @@ function setup_gui()
     end
     push!(hbox, intersectionp)
 
+    simple_intersectionp = GtkCheckButton("Show simple intersections")
+    simple_intersectionp.active[Bool] = simple_intersections
+    signal_connect(simple_intersectionp, "toggled") do cb
+        global simple_intersections = cb.active[Bool]
+        generate_curve()
+        draw(canvas)
+    end
+    push!(hbox, simple_intersectionp)
+
+    generate_curve()
     showall(win)
 end
 

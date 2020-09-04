@@ -266,7 +266,7 @@ function guess_normal(p, p1, p2)
     v1 = curve(p1)
     v2 = curve(p2)
     x = abs(v1) / abs(v2 - v1)
-    safe_normalize(gradient(p1) * (1 - x) + gradient(p2) * x)
+    safe_normalize(gradient(p1) * (x - 1) + gradient(p2) * x)
 end
 
 function sample_bezier(cp, resolution)
