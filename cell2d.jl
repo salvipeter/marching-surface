@@ -57,6 +57,100 @@ function fitCurve(points, normals, degree)
 end
 
 
+# Bezier evaluation
+
+"""
+    bernstein(n, u)
+
+Computes the Bernstein polynomials of degree `n` at the parameter `u`.
+"""
+function bernstein(n, u)
+    coeff = [1.0]
+    for j in 1:n
+        saved = 0.0
+        for k in 1:j
+            tmp = coeff[k]
+            coeff[k] = saved + tmp * (1.0 - u)
+            saved = tmp * u
+        end
+        push!(coeff, saved)
+    end
+    coeff
+end
+
+"""
+    bernstein_all(n, u)
+
+Computes all Bernstein polynomials up to degree `n` at the parameter `u`.
+"""
+function bernstein_all(n, u)
+    result = [[1.0]]
+    coeff = [1.0]
+    for j in 1:n
+        saved = 0.0
+        for k in 1:j
+            tmp = coeff[k]
+            coeff[k] = saved + tmp * (1.0 - u)
+            saved = tmp * u
+        end
+        push!(coeff, saved)
+        push!(result, copy(coeff))
+    end
+    result
+end
+
+"""
+    bezier_derivative_controls(curve, d)
+
+Computes the control points for the `d`-th derivative computation.
+The Bezier curve is given by its control points.
+"""
+function bezier_derivative_controls(curve, d)
+    n = length(curve) - 1
+    dcp = [copy(curve)]
+    for k in 1:d
+        tmp = n - k + 1
+        cp = []
+        for i in 1:tmp
+            push!(cp, (dcp[k][i+1] - dcp[k][i]) * tmp)
+        end
+        push!(dcp, cp)
+    end
+    dcp
+end
+
+"""
+    bezier_eval(curve, u)
+
+Evaluates a Bezier curve, given by its control points, at the parameter `u`.
+"""
+function bezier_eval(curve, u)
+    n = length(curve) - 1
+    coeff = bernstein(n, u)
+    sum(curve .* coeff)
+end
+
+"""
+    bezier_eval(curve, u, d)
+
+Evaluates a Bezier curve, given by its control points, at the parameter `u`, with `d` derivatives.
+"""
+function bezier_eval(curve, u, d)
+    result = []
+    n = length(curve) - 1
+    du = min(d, n)
+    coeff = bernstein_all(n, u)
+    dcp = bezier_derivative_controls(curve, du)
+    for k in 0:du
+        push!(result, sum(dcp[k+1] .* coeff[n-k+1]))
+    end
+    for k in n+1:d
+        push!(result, [0, 0])
+    end
+    result
+end
+
+
 # Main logic
 
 is_zero_vector(v) = norm(v) < 1.0e-8
@@ -81,10 +175,65 @@ function guess_normal(p, i, j)
     safe_normalize(gradient(i) * (x - 1) + gradient(j) * x)
 end
 
+"""
+    bisect(f, xl, xh, iterations = 100, ϵ = 1.0e-7)
+
+`xl` and `xh` bracket the root of f.
+"""
+function bisect(f, xl, xh, iterations = 100, ϵ = 1.0e-7)
+    xm = xl
+    for i = 1:iterations
+        xm_old = xm
+        xm = (xl + xh) / 2
+        if xm != 0 && abs((xm - xm_old) / xm) < ϵ
+            break
+        end
+        test = f(xl) * f(xm)
+        if test < 0
+            xh = xm
+        elseif test > 0
+            xl = xm
+        else
+            break
+        end
+    end
+    xm
+end
+
+function intersect_curve_line(cpts, a, b)
+    # The line is either horizontal or vertical
+    c = a[1] == b[1] ? 1 : 2
+    x = a[c]
+    (cpts[1][c] - x) * (cpts[end][c] - x) > 0 && return nothing
+    bisect(0, 1) do u
+        bezier_eval(cpts, u)[c] - x
+    end
+end
+
+function fit_cubic_bezier(p1, n1, p2, n2)
+    len = norm(p1 - p2) / 3
+    d1 = [n1[2], -n1[1]]
+    d2 = [n2[2], -n2[1]]
+    if dot(p2 - p1, d1) < 0
+        d1 *= -1
+    end
+    if dot(p1 - p2, d2) < 0
+        d2 *= -1
+    end
+    [p1, p1 + d1 * len, p2 + d2 * len, p2]
+end
+
+inside_segment(p, a, b) = dot(b - a, p - a) > 0 && norm(p - a) <= norm(b - a)
+
 function find_intersection_with_curve(i, j)
-    # TODO
-    p = corners[i]
-    n = gradient(i)
+    cpts = fit_cubic_bezier(points[i], gradient(i), points[j], gradient(j))
+
+    u = intersect_curve_line(cpts, corners[i], corners[j])
+    u === nothing && return nothing
+
+    (p, d) = bezier_eval(cpts, u, 1)
+    !inside_segment(p, corners[i], corners[j]) && return nothing
+    n = normalize([d[2], -d[1]])
     (p, n)
 end
 
@@ -116,7 +265,8 @@ function generate_curve()
     length(ints) != 2 && return
     # dirs = filter(x -> x != nothing, dirs)
 
-    # implicit_curve = 
+    curve = fit_cubic_bezier(ints[1]..., ints[2]...)
+    implicit_curve = [bezier_eval(curve, u) for u in 0:0.05:1]
     if !simple_intersections
         intersections = [ints[1], ints[2]]
     end
@@ -160,8 +310,8 @@ draw_callback = @guarded (canvas) -> begin
         draw_polygon(ctx, simple_curve)
     end
     if show_implicit
-        Graphics.set_source_rgb(ctx, 0, 0, 1)
-        Graphics.set_line_width(ctx, 1.0)
+        Graphics.set_source_rgb(ctx, 0.5, 0.5, 1)
+        Graphics.set_line_width(ctx, 5.0)
         draw_polygon(ctx, implicit_curve)
     end
 
