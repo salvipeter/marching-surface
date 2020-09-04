@@ -53,7 +53,24 @@ function normalConstraint(p, n, degree)
     n[i] * derivatives[j] - n[j] * derivatives[i]
 end
 
-function fitCurve(points, normals, degree)
+function fitImplicit(interpolation, approximation, degree)
+    # TODO
+    [250^2 + 250^2 - 100^2,     # 1
+     -500,                      # y
+     1,                         # y^2
+     0,                         # y^2
+     -500,                      # x
+     0,                         # x y
+     0,                         # x y^2
+     1,                         # x^2
+     0,                         # x^2 y
+     0]                         # x^3
+end
+
+function evalInCell(curve)
+    # TODO
+    # returns a list of segments
+    []
 end
 
 
@@ -164,15 +181,9 @@ function find_intersection(i, j)
     v2 = distance(j)
     v1 * v2 > 0 && return nothing
     x = abs(v1) / abs(v2 - v1)
-    corners[i] * (1 - x) + corners[j] * x
-end
-
-function guess_normal(p, i, j)
-    p === nothing && return nothing
-    v1 = distance(i)
-    v2 = distance(j)
-    x = abs(v1) / abs(v2 - v1)
-    safe_normalize(gradient(i) * (x - 1) + gradient(j) * x)
+    p = corners[i] * (1 - x) + corners[j] * x
+    n = safe_normalize(gradient(i) * (x - 1) + gradient(j) * x)
+    (p, n)
 end
 
 """
@@ -237,6 +248,11 @@ function find_intersection_with_curve(i, j)
     (p, n)
 end
 
+function is_inside_cell(i)
+    dir = [(1, 1), (1, -1), (-1, -1), (-1, 1)][i]
+    all(x -> x >= 0, (points[i] - corners[i]) .* dir)
+end
+
 function generate_curve()
     global simple_curve = []
     global implicit_curve = []
@@ -244,31 +260,34 @@ function generate_curve()
 
     # Simple
     ints = [find_intersection(i, mod1(i + 1, 4)) for i in 1:4]
-    normals = [guess_normal(ints[i], i, mod1(i + 1, 4)) for i in 1:4]
     ints = filter(x -> x != nothing, ints)
     if length(ints) == 2
-        normals = filter(x -> x != nothing, normals)
-        simple_curve = [ints[1], ints[2]]
+        simple_curve = [ints[1][1], ints[2][1]]
         if simple_intersections
-            intersections = [(ints[1], normals[1]), (ints[2], normals[2])]
+            intersections = ints
         end
     end
 
     # Implicit
 
-    ints = [find_intersection_with_curve(i, mod1(i + 1, 4)) for i in 1:4]
-    # dirs = [ints[1] === nothing ? nothing : [0, 1],
-    #         ints[2] === nothing ? nothing : [1, 0],
-    #         ints[3] === nothing ? nothing : [-1, 0],
-    #         ints[4] === nothing ? nothing : [0, -1]]
+    ints = [find_intersection(i, mod1(i + 1, 4)) for i in 1:4]
+    # ints = [find_intersection_with_curve(i, mod1(i + 1, 4)) for i in 1:4]
     ints = filter(x -> x != nothing, ints)
     length(ints) != 2 && return
-    # dirs = filter(x -> x != nothing, dirs)
 
-    curve = fit_cubic_bezier(ints[1]..., ints[2]...)
-    implicit_curve = [bezier_eval(curve, u) for u in 0:0.05:1]
+    constraints = [(points[i], gradient(i)) for i in 1:4 if is_inside_cell(i)]
+
+    # Parametric version
+    # curve = fit_cubic_bezier(ints[1]..., ints[2]...)
+    # samples = [bezier_eval(curve, u) for u in range(0, stop=1, length=51)]
+    # implicit_curve = [samples[Int(floor(i/2))+1] for i in 1:100]
+
+    # Implicit version
+    curve = fitImplicit(ints, constraints, 3)
+    implicit_curve = evalInCell(curve)
+
     if !simple_intersections
-        intersections = [ints[1], ints[2]]
+        intersections = ints
     end
 end
 
@@ -288,6 +307,16 @@ function draw_polygon(ctx, poly, closep = false)
         Graphics.line_to(ctx, poly[1][1], poly[1][2])
     end
     Graphics.stroke(ctx)
+end
+
+function draw_segments(ctx, poly)
+    n = length(poly)
+    for i in 1:2:n
+        Graphics.new_path(ctx)
+        Graphics.move_to(ctx, poly[i][1], poly[i][2])
+        Graphics.line_to(ctx, poly[i+1][1], poly[i+1][2])
+        Graphics.stroke(ctx)
+    end
 end
 
 draw_callback = @guarded (canvas) -> begin
@@ -312,7 +341,7 @@ draw_callback = @guarded (canvas) -> begin
     if show_implicit
         Graphics.set_source_rgb(ctx, 0.5, 0.5, 1)
         Graphics.set_line_width(ctx, 5.0)
-        draw_polygon(ctx, implicit_curve)
+        draw_segments(ctx, implicit_curve)
     end
 
     # Input
