@@ -14,6 +14,8 @@ const height = 500
 const click_precision = 10
 const point_size = 5
 const tangent_size = 40
+const marching_initial_resolution = 4
+const marching_depth = 4
 const corners = [[100, 100], [100, 400], [400, 400], [400, 100]]
 
 # GUI variables
@@ -48,29 +50,67 @@ end
 
 function normalConstraint(p, n, degree)
     derivatives = gradientConstraint(p, degree)
-    i = findmax(map(abs, n))[2] # index of max. absolute value in n
-    j = mod1(i + 1, 2)
-    n[i] * derivatives[j] - n[j] * derivatives[i]
+    n[1] * derivatives[2] - n[2] * derivatives[1]
 end
 
 function fitImplicit(interpolation, approximation, degree)
-    # TODO
-    [250^2 + 250^2 - 100^2,     # 1
-     -500,                      # y
-     1,                         # y^2
-     0,                         # y^2
-     -500,                      # x
-     0,                         # x y
-     0,                         # x y^2
-     1,                         # x^2
-     0,                         # x^2 y
-     0]                         # x^3
+    rows = []
+    for (p, n) in interpolation
+        push!(rows, pointConstraint(p, degree))
+        push!(rows, normalConstraint(p, n, degree))
+    end
+    for (p, n) in approximation
+        push!(rows, pointConstraint(p, degree))
+    end
+    A = mapreduce(transpose, vcat, rows)
+    F = svd(A)
+    x = F.V[:,end]
+    x
+end
+
+function evalInCell(curve, topleft, axis, depth)
+    p = [topleft, topleft + [axis[1], 0], topleft + axis, topleft + [0, axis[2]]]
+    v = [evalSurface(curve, 3, q) for q in p]
+    (all(x -> sign(x) == 1, v) || all(x -> sign(x) == -1, v)) && return []
+
+    result = []
+    if depth > 0
+        axis = axis / 2
+        depth -= 1
+        append!(result, evalInCell(curve, topleft, axis, depth))
+        append!(result, evalInCell(curve, topleft + [axis[1], 0], axis, depth))
+        append!(result, evalInCell(curve, topleft + axis, axis, depth))
+        append!(result, evalInCell(curve, topleft + [0, axis[2]], axis, depth))
+        return result
+    end
+
+    intersections = []
+    for i in 1:4
+        j = mod1(i + 1, 4)
+        if v[i] * v[j] < 0
+            push!(intersections, i)
+        end
+    end
+    length(intersections) != 2 && return []
+
+    for i in intersections
+        j = mod1(i + 1, 4)
+        x = abs(v[i]) / abs(v[j] - v[i])
+        push!(result, p[i] * (1 - x) + p[j] * x)
+    end
+
+    [result]
 end
 
 function evalInCell(curve)
-    # TODO
-    # returns a list of segments
-    []
+    result = []
+    len = (corners[3] - corners[1]) / marching_initial_resolution
+    for x in range(corners[1][1], step=len[1], length=marching_initial_resolution)
+        for y in range(corners[1][2], step=len[2], length=marching_initial_resolution)
+            append!(result, evalInCell(curve, [x, y], len, marching_depth))
+        end
+    end
+    result
 end
 
 
@@ -270,17 +310,22 @@ function generate_curve()
 
     # Implicit
 
-    ints = [find_intersection(i, mod1(i + 1, 4)) for i in 1:4]
-    # ints = [find_intersection_with_curve(i, mod1(i + 1, 4)) for i in 1:4]
+    # Compute intersections
+    ints = [find_intersection_with_curve(i, mod1(i + 1, 4)) for i in 1:4]
     ints = filter(x -> x != nothing, ints)
-    length(ints) != 2 && return
+    if length(ints) != 2
+        # Try the linear approximation
+        ints = [find_intersection(i, mod1(i + 1, 4)) for i in 1:4]
+        ints = filter(x -> x != nothing, ints)
+        length(ints) != 2 && return
+    end
 
     constraints = [(points[i], gradient(i)) for i in 1:4 if is_inside_cell(i)]
 
     # Parametric version
     # curve = fit_cubic_bezier(ints[1]..., ints[2]...)
     # samples = [bezier_eval(curve, u) for u in range(0, stop=1, length=51)]
-    # implicit_curve = [samples[Int(floor(i/2))+1] for i in 1:100]
+    # implicit_curve = [[samples[i], samples[i+1]] for i in 1:50]
 
     # Implicit version
     curve = fitImplicit(ints, constraints, 3)
@@ -311,10 +356,10 @@ end
 
 function draw_segments(ctx, poly)
     n = length(poly)
-    for i in 1:2:n
+    for i in 1:n
         Graphics.new_path(ctx)
-        Graphics.move_to(ctx, poly[i][1], poly[i][2])
-        Graphics.line_to(ctx, poly[i+1][1], poly[i+1][2])
+        Graphics.move_to(ctx, poly[i][1][1], poly[i][1][2])
+        Graphics.line_to(ctx, poly[i][2][1], poly[i][2][2])
         Graphics.stroke(ctx)
     end
 end
