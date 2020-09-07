@@ -9,21 +9,22 @@ import Graphics
 # Parameters
 
 # GUI parameters
-const width = 500
-const height = 500
-const click_precision = 10
-const point_size = 5
-const tangent_size = 40
-const marching_initial_resolution = 4
-const marching_depth = 4
-const corners = [[100, 100], [100, 400], [400, 400], [400, 100]]
+width = 500
+height = 500
+click_precision = 10
+point_size = 5
+tangent_size = 40
+implicit_scaling = 0.01
+marching_initial_resolution = 4
+marching_depth = 4
+corners = [[100, 100], [100, 400], [400, 400], [400, 100]]
 
 # GUI variables
-show_simple = true
+show_simple = false
 show_implicit = true
 show_tangents = true
 show_intersections = true
-simple_intersections = true
+simple_intersections = false
 
 # Global variables
 global points = [[151.56365966796875, 196.9283447265625],
@@ -56,21 +57,33 @@ end
 function fitImplicit(interpolation, approximation, degree)
     rows = []
     for (p, n) in interpolation
-        push!(rows, pointConstraint(p, degree))
-        push!(rows, normalConstraint(p, n, degree))
+        push!(rows, pointConstraint(p * implicit_scaling, degree))
+        push!(rows, normalConstraint(p * implicit_scaling, n, degree))
     end
     for (p, n) in approximation
-        push!(rows, pointConstraint(p, degree))
+        push!(rows, pointConstraint(p * implicit_scaling, degree))
     end
     A = mapreduce(transpose, vcat, rows)
     F = svd(A)
     x = F.V[:,end]
+
+    # v1 = dot(pointConstraint(interpolation[1][1] * implicit_scaling, 3), x)
+    # n1 = normalize([dot(gradientConstraint(interpolation[1][1] * implicit_scaling, 3)[1], x),
+    #                 dot(gradientConstraint(interpolation[1][1] * implicit_scaling, 3)[2], x)])
+    # tan_err = acos(dot(interpolation[1][2], n1)) * 180 / pi
+    # if tan_err > 90
+    #     tan_err = 180 - tan_err
+    # end
+    # println("Singular values: $(F.S)")
+    # println("Positional error: $v1")
+    # println("Tangential error: $(tan_err) degrees")
+
     x
 end
 
 function evalInCell(curve, topleft, axis, depth)
     p = [topleft, topleft + [axis[1], 0], topleft + axis, topleft + [0, axis[2]]]
-    v = [evalSurface(curve, 3, q) for q in p]
+    v = [evalSurface(curve, 3, q * implicit_scaling) for q in p]
     (all(x -> sign(x) == 1, v) || all(x -> sign(x) == -1, v)) && return []
 
     result = []
