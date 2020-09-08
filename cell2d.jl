@@ -5,6 +5,8 @@ using LinearAlgebra
 using Gtk
 import Graphics
 
+import ..IpatchApprox
+
 
 # Parameters
 
@@ -54,7 +56,7 @@ function normalConstraint(p, n, degree)
     n[1] * derivatives[2] - n[2] * derivatives[1]
 end
 
-function fitImplicit(interpolation, approximation, degree)
+function bajajFit(interpolation, approximation, degree)
     rows = []
     for (p, n) in interpolation
         push!(rows, pointConstraint(p * implicit_scaling, degree))
@@ -81,19 +83,40 @@ function fitImplicit(interpolation, approximation, degree)
     x
 end
 
-function evalInCell(curve, topleft, axis, depth)
+function ipatchFit(interpolation, approximation)
+    ipatch = IpatchApprox.approxIpatch(interpolation[1][1] * implicit_scaling, interpolation[1][2],
+                                       interpolation[2][1] * implicit_scaling, interpolation[2][2],
+                                       [pn[1] for pn in approximation])
+    x = IpatchApprox.coeffsToVector(ipatch)
+
+    # v1 = dot(pointConstraint(interpolation[1][1] * implicit_scaling, 4), x)
+    # n1 = normalize([dot(gradientConstraint(interpolation[1][1] * implicit_scaling, 4)[1], x),
+    #                 dot(gradientConstraint(interpolation[1][1] * implicit_scaling, 4)[2], x)])
+    # tan_err = acos(dot(interpolation[1][2], n1)) * 180 / pi
+    # if tan_err > 90
+    #     tan_err = 180 - tan_err
+    # end
+    # println("Positional error: $v1")
+    # println("Tangential error: $(tan_err) degrees")
+
+    x
+end
+
+coeffDegree(coeff) = (isqrt(9 + 8 * (length(coeff) - 1)) - 3) ÷ 2
+
+function evalInCell(curve, degree, topleft, axis, depth)
     p = [topleft, topleft + [axis[1], 0], topleft + axis, topleft + [0, axis[2]]]
-    v = [evalSurface(curve, 3, q * implicit_scaling) for q in p]
+    v = [evalSurface(curve, degree, q * implicit_scaling) for q in p]
     (all(x -> sign(x) == 1, v) || all(x -> sign(x) == -1, v)) && return []
 
     result = []
     if depth > 0
         axis = axis / 2
         depth -= 1
-        append!(result, evalInCell(curve, topleft, axis, depth))
-        append!(result, evalInCell(curve, topleft + [axis[1], 0], axis, depth))
-        append!(result, evalInCell(curve, topleft + axis, axis, depth))
-        append!(result, evalInCell(curve, topleft + [0, axis[2]], axis, depth))
+        append!(result, evalInCell(curve, degree, topleft, axis, depth))
+        append!(result, evalInCell(curve, degree, topleft + [axis[1], 0], axis, depth))
+        append!(result, evalInCell(curve, degree, topleft + axis, axis, depth))
+        append!(result, evalInCell(curve, degree, topleft + [0, axis[2]], axis, depth))
         return result
     end
 
@@ -117,10 +140,11 @@ end
 
 function evalInCell(curve)
     result = []
+    degree = coeffDegree(curve)
     len = (corners[3] - corners[1]) / marching_initial_resolution
     for x in range(corners[1][1], step=len[1], length=marching_initial_resolution)
         for y in range(corners[1][2], step=len[2], length=marching_initial_resolution)
-            append!(result, evalInCell(curve, [x, y], len, marching_depth))
+            append!(result, evalInCell(curve, degree, [x, y], len, marching_depth))
         end
     end
     result
@@ -341,7 +365,8 @@ function generate_curve()
     # implicit_curve = [[samples[i], samples[i+1]] for i in 1:50]
 
     # Implicit version
-    curve = fitImplicit(ints, constraints, 3)
+    #curve = bajajFit(ints, constraints, 3)
+    curve = ipatchFit(ints, constraints)
     implicit_curve = evalInCell(curve)
 
     if !simple_intersections
