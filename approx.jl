@@ -33,8 +33,23 @@ function approxIpatch(P1, N1, P2, N2, points)
     if isempty(points)
         w = repeat([1], n)
         return Ipatch(constraints, w)
-        #elseif length(points) == 1
-        #return ipatch(constraints, points[1], exponent, repeat([1], n), false)
+    elseif length(points) == 1
+        p = points[1]
+        w0 = -(M(1)(p) + M(2)(p)) / F(p)
+        w = [1,1,w0]
+        try
+            singularPoint = ImplicitGeometry.intersection(constraints[1][2], constraints[2][2])
+            pvalues = [constraints[1][1](singularPoint), constraints[2][1](singularPoint)]
+        catch e # if boundaries are parallel, we check in ideal point
+            singularPoint = [rotate90(constraints[1][2].n)..., 0]
+            pvalues = [ImplicitGeometry.evalHomogenous(ImplicitGeometry.PolynomialCurve(constraints[1][1]), singularPoint), ImplicitGeometry.evalHomogenous(ImplicitGeometry.PolynomialCurve(constraints[2][1]), singularPoint)]
+        finally
+            if prod(w[1:2] .* pvalues) < 0
+                w0 = -(M(1)(p) - M(2)(p)) / F(p)
+                w = [1,-1,w0]
+            end
+        end
+        return Ipatch(constraints, w)
     else
         w = Array{Float64,1}(undef, n+1)
         A = Array{Float64,2}(undef, n+1, n+1)

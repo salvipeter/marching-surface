@@ -16,7 +16,7 @@ height = 500
 click_precision = 10
 point_size = 5
 tangent_size = 40
-implicit_scaling = 0.01
+implicit_scaling = 1
 marching_initial_resolution = 4
 marching_depth = 4
 corners = [[100, 100], [100, 400], [400, 400], [400, 100]]
@@ -69,10 +69,12 @@ function bajajFit(interpolation, approximation, degree)
     F = svd(A)
     x = F.V[:,end]
 
-    # v1 = dot(pointConstraint(interpolation[1][1] * implicit_scaling, 3), x)
-    # n1 = normalize([dot(gradientConstraint(interpolation[1][1] * implicit_scaling, 3)[1], x),
-    #                 dot(gradientConstraint(interpolation[1][1] * implicit_scaling, 3)[2], x)])
-    # tan_err = acos(dot(interpolation[1][2], n1)) * 180 / pi
+    # p0 = interpolation[1][1]
+    # n0 = interpolation[1][2]
+    # v1 = dot(pointConstraint(p0 * implicit_scaling, 3), x)
+    # n1 = normalize([dot(gradientConstraint(p0 * implicit_scaling, 3)[1], x),
+    #                 dot(gradientConstraint(p0 * implicit_scaling, 3)[2], x)])
+    # tan_err = acos(dot(n0, n1)) * 180 / pi
     # if tan_err > 90
     #     tan_err = 180 - tan_err
     # end
@@ -89,10 +91,14 @@ function ipatchFit(interpolation, approximation)
                                        [pn[1] for pn in approximation])
     x = IpatchApprox.coeffsToVector(ipatch)
 
-    # v1 = dot(pointConstraint(interpolation[1][1] * implicit_scaling, 4), x)
-    # n1 = normalize([dot(gradientConstraint(interpolation[1][1] * implicit_scaling, 4)[1], x),
-    #                 dot(gradientConstraint(interpolation[1][1] * implicit_scaling, 4)[2], x)])
-    # tan_err = acos(dot(interpolation[1][2], n1)) * 180 / pi
+    # p0 = interpolation[1][1]
+    # n0 = interpolation[1][2]
+    # println("Interpolated points: $interpolation")
+    # println("Approximated points: $approximation")
+    # v1 = dot(pointConstraint(p0 * implicit_scaling, 4), x)
+    # n1 = normalize([dot(gradientConstraint(p0 * implicit_scaling, 4)[1], x),
+    #                 dot(gradientConstraint(p0 * implicit_scaling, 4)[2], x)])
+    # tan_err = acos(dot(n0, n1)) * 180 / pi
     # if tan_err > 90
     #     tan_err = 180 - tan_err
     # end
