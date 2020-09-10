@@ -437,21 +437,26 @@ function print_curve(f, approx_type)
             if dot(t2, d2) < 0
                 t2 *= -1
             end
-            d = norm(p2 - p1) / 3
+            len = norm(p2 - p1) / 3
+
+            # Compute footpoints
+            foots = filter([q - gradient(q) * curve(q) for q in points]) do q
+                all(q .>= p) && all(q .<= p + [d, d])
+            end
 
             # DEBUG: print intersection points & tangents
             # print_point(f, p1)
             # print_point(f, p2)
-            # print_segments(f, [p1, p1 + t1 * d])
-            # print_segments(f, [p2, p2 + t2 * d])
+            # print_segments(f, [p1, p1 + t1 * len])
+            # print_segments(f, [p2, p2 + t2 * len])
 
             # Parametric curve
-            # print_segments(f, [p1, p1 + t1 * d, p2 + t2 * d, p2]) # control polygon
-            print_segments(f, sample_bezier([p1, p1 + t1 * d, p2 + t2 * d, p2], sampling_res))
+            # print_segments(f, [p1, p1 + t1 * len, p2 + t2 * len, p2]) # control polygon
+            # print_segments(f, sample_bezier([p1, p1 + t1 * len, p2 + t2 * len, p2], sampling_res))
 
             # I-segment
-            # ipatch = fit_ipatch(p1, n1, p2, n2, [])
-            # print_individual_segments(f, evalInCell(ipatch, p, bbox_edge / cells, 4, 4))
+            ipatch = fit_ipatch(p1, n1, p2, n2, foots)
+            print_individual_segments(f, evalInCell(ipatch, p, d, 4, 4))
         end
     end
 end
