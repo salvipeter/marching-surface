@@ -265,7 +265,7 @@ function find_intersection(i, j)
     v1 * v2 > 0 && return nothing
     x = abs(v1) / abs(v2 - v1)
     p = corners[i] * (1 - x) + corners[j] * x
-    n = safe_normalize(gradient(i) * (x - 1) + gradient(j) * x)
+    n = safe_normalize(gradient(i) * (1 - x) + gradient(j) * x)
     (p, n)
 end
 

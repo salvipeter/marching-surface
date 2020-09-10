@@ -3,6 +3,8 @@ module Marching2D
 using ForwardDiff
 using LinearAlgebra
 
+import ..IpatchApprox
+
 # Global settings
 
 filename = "/tmp/test2d.eps"
@@ -11,7 +13,7 @@ ground_truth_resolution = 100
 
 ### SETUP_BEGIN - do not modify this line
 euclidean_distance = true
-cells = 10
+cells = 5
 offsets = [0.9, 0.6, 0.3, -0.3, -0.6, -0.9]
 onsets = [0.9, 0.6, 0.3, -0.3, -0.6, -0.9]
 
@@ -19,8 +21,8 @@ corner = [-9.5, -6]
 bbox_edge = 12.0
 curve_original = p -> p[1]^4 + 8p[1]^3 + p[2]^4 - 16
 
-show_types = [:real :linear :liming_cubic :skip :nooffsets :noonsets]
-#              red     green    blue      yellow    pink      cyan
+show_types = [:real :nolinear :liming_cubic :skip :nooffsets :noonsets]
+#              red     green      blue      yellow    pink      cyan
 ### SETUP_END - do not modify this line
 
 
@@ -126,6 +128,16 @@ function print_segments(f, segments)
     println(f, "stroke")
 end
 
+function print_individual_segments(f, segments)
+    for (p, q) in segments
+        p, q = convert(p), convert(q)
+        println(f, """newpath
+                      $(p[1]) $(p[2]) moveto
+                      $(q[1]) $(q[2]) lineto
+                      stroke""")
+    end
+end
+
 function print_point(f, p)
     p = convert(p)
     println(f, "$(p[1]) $(p[2]) $point_radius 0 360 arc fill")
@@ -136,7 +148,9 @@ function find_intersection(p1, p2)
     v2 = curve(p2)
     v1 * v2 > 0 && return nothing
     x = abs(v1) / abs(v2 - v1)
-    p1 * (1 - x) + p2 * x
+    p = p1 * (1 - x) + p2 * x
+    n = safe_normalize(gradient(p1) * (1 - x) + gradient(p2) * x)
+    (p, n)
 end
 
 function solve_quadratic(a, b, c)
@@ -208,12 +222,12 @@ function intersect_implicit(S, p1, p2)
         y = y1 < lo || y1 > hi ? y2 : y1
         if lo <= y1 <= hi && lo <= y2 <= hi
             # Two valid solutions; take the one closer to the linear approximation
-            yl = find_intersection(p1, p2)[2]
+            yl = find_intersection(p1, p2)[1][2]
             y = abs(y1 - yl) < abs(y2 - yl) ? y1 : y2
         elseif y < lo || y > hi
             @warn "$y is not in [$lo, $hi]"
         end
-        [x, y]
+        ([x, y], normalize([2 * S[1] * x + S[2] * y + S[4], 2 * S[3] * y + S[2] * x + S[5]]))
     else
         @assert p1[2] == p2[2] "The points should share exactly one coordinate"
         y = p1[2]
@@ -222,12 +236,12 @@ function intersect_implicit(S, p1, p2)
         x = x1 < lo || x1 > hi ? x2 : x1
         if lo <= x1 <= hi && lo <= x2 <= hi
             # Two valid solutions; take the one closer to the linear approximation
-            xl = find_intersection(p1, p2)[1]
+            xl = find_intersection(p1, p2)[1][1]
             x = abs(x1 - xl) < abs(x2 - xl) ? x1 : x2
         elseif x < lo || x > hi
             @warn "$x is not in [$lo, $hi]"
         end
-        [x, y]
+        ([x, y], normalize([2 * S[1] * x + S[2] * y + S[4], 2 * S[3] * y + S[2] * x + S[5]]))
     end
 end
 
@@ -243,13 +257,9 @@ function find_intersection2(p1, p2)
     f1 = p1 - g1 * v1
     f2 = p2 - g2 * v2
 
-    # DEBUG: print footpoints
-    print_point(file_handle, f1)
-    print_point(file_handle, f2)
-    if !euclidean_distance
-        print_segments(file_handle, [p1, f1])
-        print_segments(file_handle, [p2, f2])
-    end
+    # DEBUG: print footpoint vectors
+    # print_segments(file_handle, [p1, f1])
+    # print_segments(file_handle, [p2, f2])
 
     # When the gradients are nearly parallel (< 25 degrees), fall back to linear
     abs(dot(g1, g2)) > 0.9 && return find_intersection(p1, p2)
@@ -258,14 +268,6 @@ function find_intersection2(p1, p2)
 
     lp = liming_parabola(f1, g1, f2, g2)
     intersect_implicit(lp, p1, p2)
-end
-
-function guess_normal(p, p1, p2)
-    p === nothing && return nothing
-    v1 = curve(p1)
-    v2 = curve(p2)
-    x = abs(v1) / abs(v2 - v1)
-    safe_normalize(gradient(p1) * (x - 1) + gradient(p2) * x)
 end
 
 function sample_bezier(cp, resolution)
@@ -298,15 +300,10 @@ function print_offset_curve(f, offset)
                 find_intersection(points[1], points[3]),
                 find_intersection(points[2], points[4]),
                 find_intersection(points[3], points[4])]
-        normals = [guess_normal(ints[1], points[1], points[2]),
-                   guess_normal(ints[2], points[1], points[3]),
-                   guess_normal(ints[3], points[2], points[4]),
-                   guess_normal(ints[4], points[3], points[4])]
         endpoints = filter(x -> x != nothing, ints)
-        normals = filter(x -> x != nothing, normals)
         if !isempty(endpoints)
-            print_segments(f, [endpoints[1] + normals[1] * offset,
-                               endpoints[2] + normals[2] * offset])
+            print_segments(f, [endpoints[1][1] + endpoints[1][2] * offset,
+                               endpoints[2][1] + endpoints[2][2] * offset])
         end
     end
 end
@@ -321,6 +318,68 @@ function with_high_resolution(f)
     curve, curve_old = curve_old, curve
     gradient, gradient_old = gradient_old, gradient
 end
+
+
+# Local implicit evaluator
+
+coeffDegree(coeff) = (isqrt(9 + 8 * (length(coeff) - 1)) - 3) ÷ 2
+
+pointConstraint(p, degree) = [p[1]^i * p[2]^j for i in 0:degree for j in 0:degree-i]
+
+evalSurface(coeffs, degree, p) = dot(pointConstraint(p, degree), coeffs)
+
+function evalInSubCell(curve, degree, topleft, len, depth)
+    p = [topleft, topleft + [len, 0], topleft + [len, len], topleft + [0, len]]
+    v = [evalSurface(curve, degree, q) for q in p]
+    (all(x -> sign(x) == 1, v) || all(x -> sign(x) == -1, v)) && return []
+
+    result = []
+    if depth > 0
+        len = len / 2
+        depth -= 1
+        append!(result, evalInSubCell(curve, degree, topleft, len, depth))
+        append!(result, evalInSubCell(curve, degree, topleft + [len, 0], len, depth))
+        append!(result, evalInSubCell(curve, degree, topleft + [len, len], len, depth))
+        append!(result, evalInSubCell(curve, degree, topleft + [0, len], len, depth))
+        return result
+    end
+
+    intersections = []
+    for i in 1:4
+        j = mod1(i + 1, 4)
+        if v[i] * v[j] < 0
+            push!(intersections, i)
+        end
+    end
+    length(intersections) != 2 && return []
+
+    for i in intersections
+        j = mod1(i + 1, 4)
+        x = abs(v[i]) / abs(v[j] - v[i])
+        push!(result, p[i] * (1 - x) + p[j] * x)
+    end
+
+    [result]
+end
+
+function evalInCell(curve, topleft, edge, initial_resolution, depth)
+    result = []
+    degree = coeffDegree(curve)
+    len = edge / initial_resolution
+    for x in range(topleft[1], step=len, length=initial_resolution)
+        for y in range(topleft[2], step=len, length=initial_resolution)
+            append!(result, evalInSubCell(curve, degree, [x, y], len, depth))
+        end
+    end
+    result
+end
+
+function fit_ipatch(p1, n1, p2, n2, approx_points)
+    IpatchApprox.coeffsToVector(IpatchApprox.approxIpatch(p1, n1, p2, n2, approx_points))
+end
+
+
+# Main function
 
 function print_curve(f, approx_type)
     if approx_type === :real
@@ -355,27 +414,22 @@ function print_curve(f, approx_type)
                     find_intersection(points[1], points[3]),
                     find_intersection(points[2], points[4]),
                     find_intersection(points[3], points[4])]
-            endpoints = filter(x -> x != nothing, ints)
+            endpoints = [x[1] for x in ints if x != nothing]
             !isempty(endpoints) && print_segments(f, sample_bezier(endpoints, sampling_res))
         elseif approx_type === :liming_cubic
             ints = [find_intersection2(points[1], points[2]),
                     find_intersection2(points[1], points[3]),
                     find_intersection2(points[2], points[4]),
                     find_intersection2(points[3], points[4])]
-            normals = [guess_normal(ints[1], points[1], points[2]),
-                       guess_normal(ints[2], points[1], points[3]),
-                       guess_normal(ints[3], points[2], points[4]),
-                       guess_normal(ints[4], points[3], points[4])]
             dirs = [ints[1] === nothing ? nothing : [0, 1],
                     ints[2] === nothing ? nothing : [1, 0],
                     ints[3] === nothing ? nothing : [-1, 0],
                     ints[4] === nothing ? nothing : [0, -1]]
             ints = filter(x -> x != nothing, ints)
-            normals = filter(x -> x != nothing, normals)
             dirs = filter(x -> x != nothing, dirs)
             length(ints) != 2 && continue # TODO
-            p1, n1, d1 = ints[1], normals[1], dirs[1]
-            p2, n2, d2 = ints[2], normals[2], dirs[2]
+            p1, n1, d1 = ints[1][1], ints[1][2], dirs[1]
+            p2, n2, d2 = ints[2][1], ints[2][2], dirs[2]
             t1, t2 = [-n1[2], n1[1]], [-n2[2], n2[1]]
             if dot(t1, d1) < 0
                 t1 *= -1
@@ -384,9 +438,20 @@ function print_curve(f, approx_type)
                 t2 *= -1
             end
             d = norm(p2 - p1) / 3
-            # Control polygon
-            # print_segments(f, [p1, p1 + t1 * d, p2 + t2 * d, p2])
+
+            # DEBUG: print intersection points & tangents
+            # print_point(f, p1)
+            # print_point(f, p2)
+            # print_segments(f, [p1, p1 + t1 * d])
+            # print_segments(f, [p2, p2 + t2 * d])
+
+            # Parametric curve
+            # print_segments(f, [p1, p1 + t1 * d, p2 + t2 * d, p2]) # control polygon
             print_segments(f, sample_bezier([p1, p1 + t1 * d, p2 + t2 * d, p2], sampling_res))
+
+            # I-segment
+            # ipatch = fit_ipatch(p1, n1, p2, n2, [])
+            # print_individual_segments(f, evalInCell(ipatch, p, bbox_edge / cells, 4, 4))
         end
     end
 end
@@ -437,7 +502,7 @@ function sample_curve()
                 find_intersection(points[3], points[4])]
         endpoints = filter(x -> x != nothing, ints)
         if !isempty(endpoints)
-            push!(result, endpoints[1], endpoints[2])
+            push!(result, endpoints[1][1], endpoints[2][1])
         end
     end
     result
