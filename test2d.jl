@@ -374,8 +374,8 @@ function evalInCell(curve, topleft, edge, initial_resolution, depth)
     result
 end
 
-function fit_ipatch(p1, n1, p2, n2, approx_points)
-    IpatchApprox.coeffsToVector(IpatchApprox.approxIpatch(p1, n1, p2, n2, approx_points))
+function fit_ipatch(p1, n1, p2, n2, approx_points, cell)
+    IpatchApprox.coeffsToVector(IpatchApprox.approxIpatch(p1, n1, p2, n2, approx_points, cell))
 end
 
 
@@ -455,7 +455,7 @@ function print_curve(f, approx_type)
             # print_segments(f, sample_bezier([p1, p1 + t1 * len, p2 + t2 * len, p2], sampling_res))
 
             # I-segment
-            ipatch = fit_ipatch(p1, n1, p2, n2, foots)
+            ipatch = fit_ipatch(p1, n1, p2, n2, foots, [p, p+[d,d]])
             print_individual_segments(f, evalInCell(ipatch, p, d, 4, 4))
         end
     end

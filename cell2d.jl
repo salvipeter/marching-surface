@@ -88,7 +88,8 @@ end
 function ipatchFit(interpolation, approximation)
     ipatch = IpatchApprox.approxIpatch(interpolation[1][1] * implicit_scaling, interpolation[1][2],
                                        interpolation[2][1] * implicit_scaling, interpolation[2][2],
-                                       [pn[1] for pn in approximation])
+                                       [pn[1] for pn in approximation],
+                                       [corners[1], corners[3]])
     x = IpatchApprox.coeffsToVector(ipatch)
 
     # p0 = interpolation[1][1]

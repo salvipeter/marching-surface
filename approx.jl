@@ -18,7 +18,7 @@ end
 
 rotate90(p :: Vector) = [-p[2], p[1]]
 
-function approxIpatch(P1, N1, P2, N2, points)
+function approxIpatch(P1, N1, P2, N2, points, cell)
     primaries = [ImplicitGeometry.Line(P1, N1), ImplicitGeometry.Line(P2, N2)]
     boundaries = [ImplicitGeometry.lineThrough(P1, P1+N1), ImplicitGeometry.lineThrough(P2, P2+N2)]
     constraints = collect(zip(primaries, boundaries))
@@ -26,12 +26,27 @@ function approxIpatch(P1, N1, P2, N2, points)
     n = 2
     exponent = 2
 
+    insideCell = (p) -> (cell[1] <= p <= cell[2])
+
     F = (p) -> prod(b->b(p), boundaries)^exponent / sum(b->b(p)^2, boundaries)
     M(i) = i>n ? F : (p) -> constraints[i][1](p) * prod(b->b(p), setdiff(boundaries, [constraints[i][2]]))^exponent / sum(b->b(p)^2, boundaries)
     weightsToIPatch(w :: Vector{<:Number}) = IPatch2D.Ipatch(constraints, w)
 
     if isempty(points)
-        w = repeat([1], n)
+        ip = ImplicitGeometry.intersection(primaries[1], primaries[2])
+        if insideCell(ip)
+            P3 = ip
+            a = norm(P2 - P3)
+            b = norm(P1 - P3)
+            c = norm(P2 - P1)
+			p = (P1 * a + P2 * b + P3 * c) / (a + b + c);
+        else
+            P3 = ImplicitGeometry.intersection(primaries[1], boundaries[2])
+            P4 = ImplicitGeometry.intersection(boundaries[1], primaries[2])
+            p = ImplicitGeometry.intersection(ImplicitGeometry.lineThrough(P1,P2), ImplicitGeometry.lineThrough(P3,P4))
+        end
+        w0 = -(M(1)(p) + M(2)(p)) / F(p)
+        w = [1,1,w0]
         return Ipatch(constraints, w)
     elseif length(points) == 1
         p = points[1]
