@@ -362,13 +362,22 @@ function evalInSubCell(curve, degree, topleft, len, depth)
     [result]
 end
 
-function evalInCell(curve, topleft, edge, initial_resolution, depth)
+function evalInCell(coeffs, topleft, edge, initial_resolution, depth)
     result = []
-    degree = coeffDegree(curve)
+    degree = coeffDegree(coeffs)
     len = edge / initial_resolution
     for x in range(topleft[1], step=len, length=initial_resolution)
         for y in range(topleft[2], step=len, length=initial_resolution)
-            append!(result, evalInSubCell(curve, degree, [x, y], len, depth))
+            append!(result, evalInSubCell(coeffs, degree, [x, y], len, depth))
+        end
+    end
+    if check_accuracy
+        global accuracy
+        for (p, _) in result
+            d = abs(curve(p))
+            if d > accuracy
+                accuracy = d
+            end
         end
     end
     result
@@ -559,27 +568,23 @@ function generate()
 end
 
 function approximate(tolerance; max_cells = 32)
-    with_euclidean_distance() do
-        cells_old = cells
-        global cells = 1
-        global check_accuracy = true
-        global accuracy = Inf
-        while cells < max_cells && accuracy > tolerance
-            cells += 1
-            accuracy = 0
-            try
-                generate()
-            catch
-                accuracy = Inf      # Silently pass over failing cases
-            end
-            if accuracy != Inf
-                println("Cells: $cells\tAccuracy: $accuracy")
-            end
+    cells_old = cells
+    global cells = 1
+    global check_accuracy = true
+    global accuracy = Inf
+    while cells < max_cells && accuracy > tolerance
+        cells += 1
+        accuracy = 0
+        try
+            generate()
+        catch
+            accuracy = Inf      # Silently pass over failing cases
         end
-        println("Achieved accuracy: $accuracy, using $cells x $cells cells")
-        check_accuracy = false
-        cells = cells_old
+        println("Cells: $cells\tAccuracy: $accuracy")
     end
+    println("Achieved accuracy: $accuracy, using $cells x $cells cells")
+    check_accuracy = false
+    cells = cells_old
     nothing
 end
 
