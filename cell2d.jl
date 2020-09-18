@@ -27,6 +27,7 @@ show_implicit = true
 show_tangents = true
 show_intersections = true
 simple_intersections = false
+use_internal_points = false
 
 # Global variables
 global points = [[151.56365966796875, 196.9283447265625],
@@ -373,7 +374,11 @@ function generate_curve()
 
     # Implicit version
     #curve = bajajFit(ints, constraints, 3)
-    curve = ipatchFit(ints, constraints)
+	if use_internal_points
+		curve = ipatchFit(ints, constraints)
+	else
+		curve = ipatchFit(ints, [])
+	end
     implicit_curve = evalInCell(curve)
 
     if !simple_intersections
@@ -580,6 +585,18 @@ function setup_gui()
         draw(canvas)
     end
     push!(hbox, simple_intersectionp)
+
+    hbox = GtkBox(:h)
+    push!(vbox, hbox)
+	
+    internals = GtkCheckButton("Use internal points")
+    internals.active[Bool] = use_internal_points
+    signal_connect(internals, "toggled") do cb
+        global use_internal_points = cb.active[Bool]
+        generate_curve()
+        draw(canvas)
+    end
+    push!(hbox, internals)
 
     generate_curve()
     showall(win)
