@@ -34,19 +34,38 @@ function approxIpatch(P1, N1, P2, N2, points, cell)
 
     if isempty(points)
         ip = ImplicitGeometry.intersection(primaries[1], primaries[2])
+        w1 = w2 = 1
         if insideCell(ip)
+            #println("3szog")
             P3 = ip
             a = norm(P2 - P3)
             b = norm(P1 - P3)
             c = norm(P2 - P1)
-			p = (P1 * a + P2 * b + P3 * c) / (a + b + c);
+            #w1 = b
+            #w2 = a
+			p = (P1 * a + P2 * b + P3 * c) / (a + b + c)
+            #println(p)
         else
+            #println("4szog")
             P3 = ImplicitGeometry.intersection(primaries[1], boundaries[2])
             P4 = ImplicitGeometry.intersection(boundaries[1], primaries[2])
             p = ImplicitGeometry.intersection(ImplicitGeometry.lineThrough(P1,P2), ImplicitGeometry.lineThrough(P3,P4))
         end
-        w0 = -(M(1)(p) + M(2)(p)) / F(p)
-        w = [1,1,w0]
+        w0 = -(w1 * M(1)(p) + w2 * M(2)(p)) / F(p)
+        w = [w1,w2,w0]
+        try
+            singularPoint = ImplicitGeometry.intersection(constraints[1][2], constraints[2][2])
+            pvalues = [constraints[1][1](singularPoint), constraints[2][1](singularPoint)]
+        catch e # if boundaries are parallel, we check in ideal point
+            singularPoint = [rotate90(constraints[1][2].n)..., 0]
+            pvalues = [ImplicitGeometry.evalHomogenous(ImplicitGeometry.PolynomialCurve(constraints[1][1]), singularPoint), ImplicitGeometry.evalHomogenous(ImplicitGeometry.PolynomialCurve(constraints[2][1]), singularPoint)]
+        finally
+            if prod(w[1:2] .* pvalues) < 0
+                w0 = -(w1*M(1)(p) - w2*M(2)(p)) / F(p)
+                w = [w1,-w2,w0]
+            end
+        end
+        #println(w)
         return Ipatch(constraints, w)
     elseif length(points) == 1
         p = points[1]
