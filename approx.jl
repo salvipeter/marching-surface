@@ -18,18 +18,31 @@ end
 
 rotate90(p :: Vector) = [-p[2], p[1]]
 
-function approxIpatch(P1, N1, P2, N2, points, cell)
+function approxIpatch(P1, N1, P2, N2, points, cell, modifiedBoundings = false)
     primaries = [ImplicitGeometry.Line(P1, N1), ImplicitGeometry.Line(P2, N2)]
-    boundaries = [ImplicitGeometry.lineThrough(P1, P1+N1), ImplicitGeometry.lineThrough(P2, P2+N2)]
-    constraints = collect(zip(primaries, boundaries))
+    if modifiedBoundings
+        boundings = [ImplicitGeometry.lineThrough(P1, P1+N1), ImplicitGeometry.lineThrough(P2, P2+N2)]
+    else
+        Q1 = Q2 = []
+        for i = 1:2
+            if P1[1] ≈ cell[i][1] || P1[2] ≈ cell[i][2]
+                Q1 = cell[i]
+            end
+            if P2[1] ≈ cell[i][1] || P2[2] ≈ cell[i][2]
+                Q2 = cell[i]
+            end
+        end
+        boundings = [ImplicitGeometry.lineThrough(P1, Q1), ImplicitGeometry.lineThrough(P2, Q2)]
+    end
+    constraints = collect(zip(primaries, boundings))
 
     n = 2
     exponent = 2
 
     insideCell = (p) -> (cell[1] <= p <= cell[2])
 
-    F = (p) -> prod(b->b(p), boundaries)^exponent / sum(b->b(p)^2, boundaries)
-    M(i) = i>n ? F : (p) -> constraints[i][1](p) * prod(b->b(p), setdiff(boundaries, [constraints[i][2]]))^exponent / sum(b->b(p)^2, boundaries)
+    F = (p) -> prod(b->b(p), boundings)^exponent / sum(b->b(p)^2, boundings)
+    M(i) = i>n ? F : (p) -> constraints[i][1](p) * prod(b->b(p), setdiff(boundings, [constraints[i][2]]))^exponent / sum(b->b(p)^2, boundings)
     weightsToIPatch(w :: Vector{<:Number}) = IPatch2D.Ipatch(constraints, w)
 
     if isempty(points)
@@ -47,8 +60,8 @@ function approxIpatch(P1, N1, P2, N2, points, cell)
             #println(p)
         else
             #println("4szog")
-            P3 = ImplicitGeometry.intersection(primaries[1], boundaries[2])
-            P4 = ImplicitGeometry.intersection(boundaries[1], primaries[2])
+            P3 = ImplicitGeometry.intersection(primaries[1], boundings[2])
+            P4 = ImplicitGeometry.intersection(boundings[1], primaries[2])
             p = ImplicitGeometry.intersection(ImplicitGeometry.lineThrough(P1,P2), ImplicitGeometry.lineThrough(P3,P4))
         end
         w0 = -(w1 * M(1)(p) + w2 * M(2)(p)) / F(p)
