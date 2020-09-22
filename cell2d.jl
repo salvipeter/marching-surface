@@ -28,6 +28,7 @@ show_tangents = true
 show_intersections = true
 simple_intersections = false
 use_internal_points = false
+modified_boundings = true
 
 # Global variables
 global points = [[151.56365966796875, 196.9283447265625],
@@ -90,7 +91,8 @@ function ipatchFit(interpolation, approximation)
     ipatch = IpatchApprox.approxIpatch(interpolation[1][1] * implicit_scaling, interpolation[1][2],
                                        interpolation[2][1] * implicit_scaling, interpolation[2][2],
                                        [pn[1] for pn in approximation],
-                                       [corners[1], corners[3]])
+                                       [corners[1], corners[3]],
+                                       modified_boundings)
     x = IpatchApprox.coeffsToVector(ipatch)
 
     # p0 = interpolation[1][1]
@@ -588,7 +590,7 @@ function setup_gui()
 
     hbox = GtkBox(:h)
     push!(vbox, hbox)
-	
+
     internals = GtkCheckButton("Use internal points")
     internals.active[Bool] = use_internal_points
     signal_connect(internals, "toggled") do cb
@@ -597,6 +599,15 @@ function setup_gui()
         draw(canvas)
     end
     push!(hbox, internals)
+
+    boundings = GtkCheckButton("Use rotated boundings")
+    boundings.active[Bool] = modified_boundings
+    signal_connect(boundings, "toggled") do cb
+        global modified_boundings = cb.active[Bool]
+        generate_curve()
+        draw(canvas)
+    end
+    push!(hbox, boundings)
 
     generate_curve()
     showall(win)
