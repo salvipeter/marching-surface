@@ -24,17 +24,30 @@ function approxIpatch(P1, N1, P2, N2, points, cell, modifiedBoundings = false)
         boundings = [ImplicitGeometry.lineThrough(P1, P1+N1), ImplicitGeometry.lineThrough(P2, P2+N2)]
     else
         Q1 = Q2 = []
+        minval1 = minval2 = norm(cell[2]-cell[1])
         for i = 1:2
-            if P1[1] ≈ cell[i][1] || P1[2] ≈ cell[i][2]
+            if abs(P1[1] - cell[i][1]) < minval1
                 Q1 = cell[i]
+                minval1 = P1[1] - cell[i][1]
             end
-            if P2[1] ≈ cell[i][1] || P2[2] ≈ cell[i][2]
+            if abs(P1[2] - cell[i][2]) < minval1
+                Q1 = cell[i]
+                minval1 = P1[2] - cell[i][2]
+            end
+            if abs(P2[1] - cell[i][1]) < minval2
                 Q2 = cell[i]
+                minval2 = P2[1] - cell[i][1]
+            end
+            if abs(P2[2] - cell[i][2]) < minval2
+                Q2 = cell[i]
+                minval2 = P2[2] - cell[i][2]
             end
         end
         boundings = [ImplicitGeometry.lineThrough(P1, Q1), ImplicitGeometry.lineThrough(P2, Q2)]
     end
     constraints = collect(zip(primaries, boundings))
+
+    println(boundings)
 
     n = 2
     exponent = 2
