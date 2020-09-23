@@ -13,6 +13,8 @@ ground_truth_resolution = 100
 
 ### SETUP_BEGIN - do not modify this line
 euclidean_distance = true
+use_i_segment = true
+approximate_footpoints = false
 cells = 5
 offsets = [0.9, 0.6, 0.3, -0.3, -0.6, -0.9]
 onsets = [0.9, 0.6, 0.3, -0.3, -0.6, -0.9]
@@ -459,13 +461,19 @@ function print_curve(f, approx_type)
             # print_segments(f, [p1, p1 + t1 * len])
             # print_segments(f, [p2, p2 + t2 * len])
 
-            # Parametric curve
-            # print_segments(f, [p1, p1 + t1 * len, p2 + t2 * len, p2]) # control polygon
-            # print_segments(f, sample_bezier([p1, p1 + t1 * len, p2 + t2 * len, p2], sampling_res))
+            # DEBUG: print approximated footpoints
+            # for foot in foots
+            #     print_point(f, foot)
+            # end
 
-            # I-segment
-            ipatch = fit_ipatch(p1, n1, p2, n2, foots, [p, p+[d,d]])
-            print_individual_segments(f, evalInCell(ipatch, p, d, 4, 4))
+            if use_i_segment
+                ipatch = fit_ipatch(p1, n1, p2, n2, approximate_footpoints ? foots : [])
+                print_individual_segments(f, evalInCell(ipatch, p, d, 4, 4))
+            else # parametric curve
+                # print_segments(f, [p1, p1 + t1 * len, p2 + t2 * len, p2]) # control polygon
+                print_segments(f, sample_bezier([p1, p1 + t1 * len, p2 + t2 * len, p2],
+                                                sampling_res))
+            end
         end
     end
 end
