@@ -1,0 +1,6 @@
+[deps]
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+Graphics = "a2bd30eb-e257-5431-a919-1863eab51364"
+Gtk = "4c0ca9eb-093a-5379-98c5-f87ac0bbbf44"
+PaddedViews = "5432bcbf-9aad-5242-b902-cca2824c8663"
+Polynomials = "f27b6e38-b328-58d1-80ce-0feddd5e7a45"

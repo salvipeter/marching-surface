@@ -7,6 +7,8 @@ import Graphics
 
 import ..IpatchApprox
 
+export cell_test
+
 
 # Parameters
 
@@ -613,6 +615,6 @@ function setup_gui()
     showall(win)
 end
 
-run() = begin setup_gui(); nothing end
+cell_test() = begin setup_gui(); nothing end
 
 end
