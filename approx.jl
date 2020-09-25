@@ -77,6 +77,8 @@ function approxIpatch(P1, N1, P2, N2, points, cell, modifiedBoundings = false)
             P4 = ImplicitGeometry.intersection(boundings[1], primaries[2])
             p = ImplicitGeometry.intersection(ImplicitGeometry.lineThrough(P1,P2), ImplicitGeometry.lineThrough(P3,P4))
         end
+		w1 = 1 / M(1)(p)
+		w2 = 1 / M(2)(p)
         w0 = -(w1 * M(1)(p) + w2 * M(2)(p)) / F(p)
         w = [w1,w2,w0]
         try
