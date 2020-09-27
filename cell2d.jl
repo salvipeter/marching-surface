@@ -271,7 +271,7 @@ function find_intersection(i, j)
     v1 * v2 > 0 && return nothing
     x = abs(v1) / abs(v2 - v1)
     p = corners[i] * (1 - x) + corners[j] * x
-    n = safe_normalize(gradient(i) * (1 - x) + gradient(j) * x)
+    n = safe_normalize(gradient(i) * (x - 1) + gradient(j) * x)
     (p, n)
 end
 
@@ -377,7 +377,7 @@ function generate_curve()
     # implicit_curve = [[samples[i], samples[i+1]] for i in 1:50]
 
     # Implicit version
-    #curve = bajajFit(ints, constraints, 3)
+    curve = bajajFit(ints, constraints, 3)
 	if use_internal_points
 		curve = ipatchFit(ints, constraints)
 	else
