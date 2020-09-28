@@ -18,36 +18,48 @@ end
 
 rotate90(p :: Vector) = [-p[2], p[1]]
 
+function originalBoundings(P1, P2, cell)
+    Q1 = Q2 = []
+    minval1 = minval2 = norm(cell[2]-cell[1])
+    for i = 1:2
+        if abs(P1[1] - cell[i][1]) < minval1
+            Q1 = cell[i]
+            minval1 = P1[1] - cell[i][1]
+        end
+        if abs(P1[2] - cell[i][2]) < minval1
+            Q1 = cell[i]
+            minval1 = P1[2] - cell[i][2]
+        end
+        if abs(P2[1] - cell[i][1]) < minval2
+            Q2 = cell[i]
+            minval2 = P2[1] - cell[i][1]
+        end
+        if abs(P2[2] - cell[i][2]) < minval2
+            Q2 = cell[i]
+            minval2 = P2[2] - cell[i][2]
+        end
+    end
+    boundings = [ImplicitGeometry.lineThrough(P1, Q1), ImplicitGeometry.lineThrough(P2, Q2)]
+    if boundings[1](P2) < 0
+        boundings[1] = -boundings[1]
+    end
+    if boundings[2](P1) < 0
+        boundings[2] = -boundings[2]
+    end
+    boundings
+end
+
 function approxIpatch(P1, N1, P2, N2, points, cell, modifiedBoundings = false)
     primaries = [ImplicitGeometry.Line(P1, N1), ImplicitGeometry.Line(P2, N2)]
+    origBoundings = originalBoundings(P1, P2, cell)
     if modifiedBoundings
         boundings = [ImplicitGeometry.lineThrough(P1, P1+N1), ImplicitGeometry.lineThrough(P2, P2+N2)]
     else
-        Q1 = Q2 = []
-        minval1 = minval2 = norm(cell[2]-cell[1])
-        for i = 1:2
-            if abs(P1[1] - cell[i][1]) < minval1
-                Q1 = cell[i]
-                minval1 = P1[1] - cell[i][1]
-            end
-            if abs(P1[2] - cell[i][2]) < minval1
-                Q1 = cell[i]
-                minval1 = P1[2] - cell[i][2]
-            end
-            if abs(P2[1] - cell[i][1]) < minval2
-                Q2 = cell[i]
-                minval2 = P2[1] - cell[i][1]
-            end
-            if abs(P2[2] - cell[i][2]) < minval2
-                Q2 = cell[i]
-                minval2 = P2[2] - cell[i][2]
-            end
-        end
-        boundings = [ImplicitGeometry.lineThrough(P1, Q1), ImplicitGeometry.lineThrough(P2, Q2)]
+        boundings = origBoundings
     end
     constraints = collect(zip(primaries, boundings))
 
-    println(boundings)
+    #println(boundings)
 
     n = 2
     exponent = 2
@@ -61,7 +73,7 @@ function approxIpatch(P1, N1, P2, N2, points, cell, modifiedBoundings = false)
     if isempty(points)
         ip = ImplicitGeometry.intersection(primaries[1], primaries[2])
         w1 = w2 = 1
-        if insideCell(ip)
+        if origBoundings[1](ip) > 0 && origBoundings[2](ip) > 0
             #println("3szog")
             P3 = ip
             a = norm(P2 - P3)
@@ -71,12 +83,18 @@ function approxIpatch(P1, N1, P2, N2, points, cell, modifiedBoundings = false)
             #w2 = a
 			p = (P1 * a + P2 * b + P3 * c) / (a + b + c)
             #println(p)
+            eps = (cell[2][1] - cell[1][1]) / 30
+            if norm(p-P2) < eps || norm(p-P1) < eps
+                p = (P1+P2)/2
+            end
         else
             #println("4szog")
             P3 = ImplicitGeometry.intersection(primaries[1], boundings[2])
             P4 = ImplicitGeometry.intersection(boundings[1], primaries[2])
             p = ImplicitGeometry.intersection(ImplicitGeometry.lineThrough(P1,P2), ImplicitGeometry.lineThrough(P3,P4))
         end
+		w1 = 1 / M(1)(p)
+		w2 = 1 / M(2)(p)
         w0 = -(w1 * M(1)(p) + w2 * M(2)(p)) / F(p)
         w = [w1,w2,w0]
         try
