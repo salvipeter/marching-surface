@@ -326,6 +326,9 @@ end
 inside_segment(p, a, b) = dot(b - a, p - a) > 0 && norm(p - a) <= norm(b - a)
 
 function find_intersection_with_curve(i, j)
+    v1 = distance(i)
+    v2 = distance(j)
+    v1 * v2 > 0 && return nothing
     cpts = fit_cubic_bezier(points[i], gradient(i), points[j], gradient(j))
 
     u = intersect_curve_line(cpts, corners[i], corners[j])
@@ -349,6 +352,7 @@ function generate_curve()
 
     # Simple
     ints = [find_intersection(i, mod1(i + 1, 4)) for i in 1:4]
+    @show ints
     ints = filter(x -> x != nothing, ints)
     if length(ints) == 2
         simple_curve = [ints[1][1], ints[2][1]]

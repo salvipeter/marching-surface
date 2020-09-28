@@ -471,7 +471,7 @@ function print_curve(f, approx_type)
             if use_i_segment
                 ipatch = fit_ipatch(p1, n1, p2, n2, approximate_footpoints ? foots : [],
                                     [p, p + [d, d]])
-                print_individual_segments(f, evalInCell(ipatch, p, d, 4, 4))
+                print_individual_segments(f, evalInCell(ipatch, p, d, 16, 4))
             else # parametric curve
                 # print_segments(f, [p1, p1 + t1 * len, p2 + t2 * len, p2]) # control polygon
                 print_segments(f, sample_bezier([p1, p1 + t1 * len, p2 + t2 * len, p2],
