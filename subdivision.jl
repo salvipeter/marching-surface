@@ -1,5 +1,8 @@
 module Subdivision
 
+import ForwardDiff
+using LinearAlgebra
+
 # Biquartic subdivision
 # If the original mesh was a grid with edge length x:
 # - the result is a grid with edge length x * 2^-k (where k is the # of iterations)
@@ -44,7 +47,7 @@ function write_surface(points, filename)
     end
 end
 
-function test(f, bbox, resolution, iterations, filename)
+function create_data(f, bbox, resolution)
     points = Matrix{Vector{Float64}}(undef, resolution, resolution)
     for i in 1:resolution, j in 1:resolution
         u = (i - 1) / (resolution - 1)
@@ -53,12 +56,26 @@ function test(f, bbox, resolution, iterations, filename)
         y = bbox[1][2] * (1 - v) + bbox[2][2] * v
         points[i,j] = [x, y, f(x, y)]
     end
-    points = subdivide(points, iterations)
-    write_surface(points, filename)
+    points
 end
 
-test1() = test((x,y) -> x^4+8x^3+y^4-16, ([-9.5,-6.5], [2.5,6.5]), 15, 3, "/tmp/test.obj")
-test2() = test((x,y) -> x^2+y^2-1, ([-2,-2], [2,2]), 5, 5, "/tmp/test.obj")
-test3() = test((x,y) -> y^2-x^3+7x-6, ([-10,-10], [10,10]), 30, 2, "/tmp/test.obj")
+function test(f, bbox, resolution, iterations, ground_truth_resolution = 50)
+    gradient(x, y) = ForwardDiff.gradient(p -> f(p[1], p[2]), [x, y])
+    normalized(x, y) = f(x, y) / norm(gradient(x, y))
+    points = create_data(normalized, bbox, resolution)
+    grid = deepcopy(points)
+    for p in grid
+        p[3] = 0
+    end
+    write_surface(grid, "/tmp/grid.obj")
+    points = subdivide(points, iterations)
+    write_surface(points, "/tmp/test.obj")
+    gtruth = create_data(f, bbox, ground_truth_resolution)
+    write_surface(gtruth, "/tmp/gtruth.obj")
+end
+
+test1() = test((x,y) -> x^4+8x^3+y^4-16, ([-9.5,-6.5], [2.5,6.5]), 15, 3)
+test2() = test((x,y) -> x^2+y^2-1, ([-2,-2], [2,2]), 8, 5)
+test3() = test((x,y) -> y^2-x^3+7x-6, ([-7,-7], [7,7]), 18, 2)
 
 end
