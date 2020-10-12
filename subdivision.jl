@@ -60,8 +60,19 @@ function create_data(f, bbox, resolution)
 end
 
 function test(f, bbox, resolution, iterations, ground_truth_resolution = 50)
+    @assert resolution > 4 "Resolution should be at least 5"
+    l = max.(bbox[2] - bbox[1]) * (resolution - 1) / (resolution - 4)
+    c = (bbox[1] + bbox[2]) / 2
+    bbox = [c - l, c + l]
     gradient(x, y) = ForwardDiff.gradient(p -> f(p[1], p[2]), [x, y])
-    normalized(x, y) = f(x, y) / norm(gradient(x, y))
+    function normalized(x, y)
+        ndf = norm(gradient(x, y))
+        if ndf > 0
+            f(x, y) / ndf
+        else
+            f(x, y)
+        end
+    end
     points = create_data(normalized, bbox, resolution)
     grid = deepcopy(points)
     for p in grid
@@ -74,8 +85,8 @@ function test(f, bbox, resolution, iterations, ground_truth_resolution = 50)
     write_surface(gtruth, "/tmp/gtruth.obj")
 end
 
-test1() = test((x,y) -> x^4+8x^3+y^4-16, ([-9.5,-6.5], [2.5,6.5]), 15, 3)
-test2() = test((x,y) -> x^2+y^2-1, ([-2,-2], [2,2]), 8, 5)
-test3() = test((x,y) -> y^2-x^3+7x-6, ([-7,-7], [7,7]), 18, 2)
+test1() = test((x,y) -> x^4+8x^3+y^4-16, ([-6,-2.5], [-1,2.5]), 20, 3)
+test2() = test((x,y) -> x^2+y^2-1, ([-1,-1], [1,1]), 10, 3)
+test3() = test((x,y) -> y^2-x^3+7x-6, ([-1.5,-5], [3,5]), 20, 3)
 
 end
